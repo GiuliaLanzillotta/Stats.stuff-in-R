@@ -1,0 +1,266 @@
+---
+title: "Chapter 3 exercises (ISLR)"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# Chapter 3: linear regression
+## Applied exercises 
+
+### Exercise 9
+
+```{r}
+library(ISLR)
+head(Auto)
+summary(Auto)
+detach(Auto)
+attach(Auto)
+```
+```{r}
+pairs(Auto)
+hist(mpg)
+```
+```{r}
+boxplot(mpg~cylinders)
+boxplot(mpg~origin)
+boxplot(mpg~year)
+
+```
+```{r}
+# Matrix of correlation 
+cor(subset(Auto, select = -name))
+```
+There's a high correlation among the first 4 variables (mpg excluded). 
+
+Let's now build a linear model.
+```{r}
+# first transforming origin into a categorical 
+Auto$origin <- factor(Auto$origin, labels = c("American", "European", "Japanese"))
+fit <- lm(mpg~., data=subset(Auto, select = -name))
+summary(fit)
+```
+i. Is there a relationship between the predictors and the response?
+Answer: yes, the F-statistic is telling us that at least one variable in the model has a relationship with the response with an almost 100% confidence. 
+
+ii. Which predictors appear to have a statistically significant relationship to the response? 
+Answer: Displacement, weight, year and origin. 
+However, we have to take into consideration that there might be multi-collinearity in the model. 
+
+iii. What does the coefficient for the year variable suggest?
+Answer: that on average, leaving the rest fixed, each year the mpg increases by 0.75. 
+
+```{r}
+# Diagnostic plots!
+plot(fit)
+```
+The Tukey-Anscombe plot seem to be suggesting a missing quadratic term in the model.
+
+The Q-Q plot seems to confirm the Normality hypothesis for the errors.
+
+The Standardized residuals vs fitted values and leverage seem to suggest the presence of a few outliers (323,327,...) and a single high leverage point, which is not an outlier (14). 
+
+Let's model the interactions now. 
+```{r}
+fit.2 <- lm(mpg~.*., data=subset(Auto, select = -name))
+summary(fit.2)
+
+```
+Note that the interactions have taken over most of the statistical significance of the model. The R-squared has increased by 5 points, hence we conclude that the model with the interactions is significantly better than the model without. 
+
+Now let's try omitting some possibly collinear variables. 
+```{r}
+fit.3 <- lm(mpg~ origin + weight*horsepower + year*acceleration, data=subset(Auto, select = -name))
+summary(fit.3)
+```
+Although all the variables are statistically significant now, we don't get an increase in the adjusted R-squared. 
+
+Let's try to include some polynomial terms as well. 
+Which factor to transform is determined looking at the pairs plot. 
+```{r}
+fit.4 <- lm(mpg~.*. + I(weight^2) + I(displacement^2) + I(horsepower^2) + I(year^2) , data=Auto[,-9])
+summary(fit.4)
+```
+```{r}
+# Diagnostic plots 
+plot(fit.4)
+```
+The Tukey-Anscombe plot seems to have a funnel shape. Let's transform the response to stabilize the predictions. 
+```{r}
+fit.5 <- lm(log(mpg)~.+ I(horsepower^2) + I(year^2) + acceleration:year + acceleration:origin, data=Auto[,-9])
+summary(fit.5)
+```
+Diagnostic plot again.
+```{r}
+plot(fit.5)
+```
+The log-transformation of the response variable seems to have had the desired impact on the residuals.
+
+The Q-Q plot seems to suggest a heavier tails distribution for the residuals. 
+
+### Exercise 10 
+```{r}
+head(Carseats)
+summary(Carseats)
+attach(Carseats)
+pairs(Carseats)
+boxplot(Sales~ShelveLoc)
+```
+```{r}
+model <- lm(Sales~Price+Urban+US)
+summary(model)
+plot(model)
+```
+Note: the F-statistic is significant but the R-squared is very low: hence the model is not able to explain the variance in the model even though at least one of the variables has predictive power. 
+Looking at the diagnostic plots we get that the relationship between the response and the regressors is linear (and fulfills the Normality assumption) but cannot account for much of the variability in the response. 
+```{r}
+model2 <- lm(Sales~Price+US)
+summary(model2)
+plot(model2)
+```
+95% confidence intervals for our estimates. 
+```{r}
+n <- dim(Carseats)[1]
+s <- summary(model2)
+```
+```{r}
+price.e <- model2$coefficients[2]
+price.se <- s$coefficients[2,2]
+USYes.e <- model2$coefficients[3]
+USYes.se <- s$coefficients[3,2]
+(ci.price <- c(price.e - qt(0.975, df=n-3)*price.se, price.e + qt(0.975, df=n-3)*price.se))
+(ci.USYes <- c(USYes.e - qt(0.975, df=n-3)*USYes.se, USYes.e + qt(0.975, df=n-3)*USYes.se))
+
+```
+
+### Exercise 14 
+
+```{r}
+set.seed(1) 
+x1=runif(100) 
+x2=0.5*x1+rnorm(100)/10 
+y=2+2*x1+0.3*x2+rnorm(100)
+pairs(y~x1+x2)
+```
+```{r}
+# Correlation between x1 and x2
+n <- 100
+# Pearson correlation coefficient
+sum((x1-mean(x1))*(x2-mean(x2)))/(sqrt(sum((x1-mean(x1))**2))*sqrt(sum((x2-mean(x2))**2)))
+# r correlation 
+cor(data.frame(x1,x2,y))
+```
+```{r}
+fit <- lm(y~x1+x2)
+summary(fit)
+plot(fit)
+```
+We can reject the null for x1 but we cannot reject the null for x2. Such high p-values (and the low power of the t-test) is a consequence of the uncertainty caused by the collinearity of x1 and x2. 
+Also note that the coefficients for x1 and x2 split almost fairly the contributions of the two variables, whereas in the original model it is x1 that mainly affects the response. 
+
+Now let's remove one of the two variables and look at the results. 
+```{r}
+fit1 <- lm(y~x1)
+summary(fit1)
+plot(fit1)
+```
+And the other: 
+```{r}
+fit2 <- lm(y~x2)
+summary(fit2)
+plot(fit2)
+```
+Additional noisy observation. 
+```{r}
+x1=c(x1 , 0.1) 
+x2=c(x2 , 0.8)
+y=c(y,6)
+```
+Let's refit the models.
+```{r}
+# full model
+fit <- lm(y~x1+x2)
+summary(fit)
+plot(fit)
+# only x1
+fit1 <- lm(y~x1)
+summary(fit1)
+plot(fit1)
+# only x2
+fit2 <- lm(y~x2)
+summary(fit2)
+plot(fit2)
+```
+Note that on the full model this outlier causes the coefficients to change drastically, while there's little change in the coefficient values for the single variable models. 
+
+Also, the new value is seen as an outlier by all three models, but it does not have high leverage in the second model. 
+
+```{r}
+plot(x1,y)
+abline(fit1, col="red")
+abline(a=2, b=2.15, col="blue")
+
+plot(x2,y)
+abline(fit2, col="red")
+abline(a=2, b=4.3, col="blue")
+```
+
+
+### Exercise 15 
+
+```{r}
+require(MASS)
+data(Boston)
+attach(Boston)
+head(Boston)
+summary(Boston)
+pairs(Boston)
+```
+```{r}
+names(Boston)
+```
+```{r}
+# making "chas" a factor 
+Boston$chas <- factor(chas, labels="N,Y")
+boxplot(crim~chas)
+```
+About the dataset: 
+--
+We will now try to predict per capita crime rate using the other variables in this data set.
+```{r}
+n <- 506
+p <- 13
+```
+
+```{r}
+names.B <- names(Boston)
+betas <- matrix(nrow = p, ncol = 2)
+for(i in 2:(p+1)){
+  simple <- lm(crim~Boston[,i])
+  betas[(i-1),1] <- simple$coefficients[2]
+  print(summary(simple))
+  plot(Boston[,i], crim, xlab = names.B[i])
+  abline(simple, col="blue")
+}
+```
+From the output of each single model almost all the variables seem to have statistical significance. 
+
+Now let's look at the summary for the whole model: 
+```{r}
+full <- lm(crim~., data=Boston)
+betas[,2] <- full$coefficients[2:14]
+summary(full)
+```
+As expected: the full model depicts as statistically significant only a few variables. Whereas looking at the simple regression models we could reject the null for almost all variables, looking at the above summary we can reject the null only for 5 variables. 
+```{r}
+plot(betas)
+```
+Is there evidence of non-linear association between any of the predictors and the response?
+```{r}
+for(i in 2:(p+1)){
+  simple.poly <- lm(crim~poly(Boston[,i],3))
+  print(summary(simple.poly))
+}
+```
+
+

@@ -1,0 +1,414 @@
+---
+title: "Series 3 - solutions"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+# The fruitflies dataset 
+This dataset contains observations on five groups of male fruitflies – 25 fruitflies in each group – from an experiment designed to test if increased reproduction reduces longevity for male fruitflies. 
+The five groups are: males forced to live alone, males assigned to live with one or eight interested females, and males assigned to live with one or eight non-receptive females.
+```{r}
+#detach(data)
+
+```
+
+```{r}
+url <- "https://ww2.amstat.org/publications/jse/datasets/fruitfly.dat.txt"
+data <- read.table(url)
+data <- data[,c(-1,-6)] # remove id and sleep
+names(data) <- c("partners","type","longevity","thorax")
+attach(data)
+```
+```{r}
+head(data)
+summary(data)
+dim(data)
+```
+```{r}
+# let's get a visual understanding of this data 
+pairs(data)
+cor(data)
+```
+```{r}
+boxplot(longevity~partners)
+```
+
+```{r}
+boxplot(longevity~type)
+```
+```{r}
+# preparing colors for the scatter plot
+cols <- partners
+cols[cols==0] <- 3
+cols[cols==8] <- 2
+cols[cols==1] <- 4
+cols
+```
+
+```{r}
+plot(thorax, longevity, col=cols, pch=type)
+legend(0.65, 100, 
+       legend=c("0 partners", "1 partner", "8 partners"), 
+       col=c("3","4","2"), 
+       cex=.8,
+       lty=1)
+legend(0.9, 40, 
+       legend=c("type 0", "type 1", "type 9"), 
+       col=1, 
+       cex=.8,
+       pch=c(0,1,9))
+```
+Let's separate the points based on the number of partners available. 
+```{r}
+plot(thorax[partners==0], longevity[partners==0], col=3, pch=type[partners==0], main = "0 partners")
+legend(0.65, 100, 
+       legend=c("type 0", "type 1", "type 9"), 
+       col=1, 
+       cex=.8,
+       pch=c(0,1,9))
+plot(thorax[partners==1], longevity[partners==1], col=4, pch=type[partners==1], main = "1 partner")
+legend(0.65, 100, 
+       legend=c("type 0", "type 1", "type 9"), 
+       col=1, 
+       cex=.8,
+       pch=c(0,1,9))
+plot(thorax[partners==8], longevity[partners==8], col=2, pch=type[partners==8], main = "8 partners")
+legend(0.65, 83, 
+       legend=c("type 0", "type 1", "type 9"), 
+       col=1, 
+       cex=.8,
+       pch=c(0,1,9))
+```
+Looking at the second and third plot it emerges an interaction between the number of partners and the type of female (interested , ... ) on longevity. 
+We now want to encode these 5 different study groups with dummy variables. 
+```{r}
+group1 <- (partners==0) * 1
+group2 <- (partners==1 & type==0) *2
+group3 <- (partners==1 & type==1) *3
+group4 <- (partners==8 & type==0) *4
+group5 <- (partners==8 & type==1) *5
+group <- group1 + group2 + group3 + group4 + group5
+```
+Let's look at the thorax length among these 5 different groups.
+```{r}
+boxplot(thorax~group, col=c(5,6,7,8,2))
+```
+Is there a statistically significant different in the thorax length among the groups? 
+Let's use an ANOVA to test it.
+```{r}
+fit1 <- lm(thorax~1)
+fit2 <- lm(thorax~group)
+anova(fit1, fit2)
+```
+By looking at the above table we can conclude that there's no statistically significant difference in terms of thorax length between the 5 groups. 
+This was to be expected since the assignments to the groups were random,
+hence the distribution of thorax should be similar among the different groups. 
+
+But can we omit thorax from the model then? Probably not, because thorax length could be an fundamental indicator of the health of the animal, which is in the end positively correlated with longevity. But let's test it! 
+```{r}
+model1 <- lm(longevity~factor(group))
+model2 <- lm(longevity~factor(group)+thorax)
+anova(model1,model2)
+```
+Let's test now the effect of the presence of thorax over a specific test group. 
+```{r}
+model1 <- lm(longevity[partners==1]~factor(group[partners==1]))
+model2 <- lm(longevity[partners==1]~factor(group[partners==1])+thorax[partners==1])
+anova(model1,model2)
+```
+Again, the presence of the variable thorax drastically reduces the RSS.
+Let's look at the difference in terms of coefficients.
+```{r}
+summary(model1)
+summary(model2)
+```
+
+```{r}
+plot(thorax[partners==1], longevity[partners==1], col=group[partners==1])
+abline(a=model1$coefficients[1],b=0,col=2)
+abline(a=model1$coefficients[1]+model1$coefficients[2],b=0,col=3)
+
+plot(thorax[partners==1], longevity[partners==1], col=group[partners==1])
+abline(a=model2$coefficients[1],b=model2$coefficients[3],col=2)
+abline(a=model2$coefficients[1]+model2$coefficients[2],b=model2$coefficients[3],col=3)
+```
+Now ee want to test for interaction between type of female and number of females.
+```{r}
+wrong.model <- lm(longevity~thorax+as.factor(type)*as.factor(partners))
+summary(wrong.model)
+```
+Note: the above model doesn't make sense since we should only account for 5 of the possible combination of dummy variables.
+Now let's create a better one. 
+```{r}
+better.model <- lm(longevity~thorax+as.factor(group2)+as.factor(group3)+as.factor(group4)+as.factor(group5))#note: group1 is the baseline
+summary(better.model)
+
+```
+Is the interaction between type and partners statistically significant? 
+Let's test it with an ANOVA. 
+```{r}
+
+group1 <- (partners==0) * 1
+group2 <- (partners==1 & type==0) *1
+group3 <- (partners==1 & type==1) *1
+group4 <- (partners==8 & type==0) *1
+group5 <- (partners==8 & type==1) *1
+reduced.model <- lm(longevity~thorax+(I(group2+group3))+(I(group2+group4))+(I(group5-group2)))
+summary(reduced.model)
+```
+
+```{r}
+anova(reduced.model, better.model)
+```
+From the anova we can conclude there's statistically significant interaction between the variables. 
+```{r}
+group <- as.factor(group)
+full.model <- lm(longevity~thorax+group+thorax*group)
+summary(full.model)
+```
+```{r}
+anova(better.model, full.model)
+```
+
+# The life expectancy dataset 
+```{r}
+url <- "https://raw.githubusercontent.com/jawj/coffeestats/master/lifeexp.dat"
+data <- read.table(url, sep="\t", header=T, row.names=1)
+data <- data[,c("LifeExp","People.per.TV","People.per.Dr")]
+```
+```{r}
+detach(data)
+attach(data)
+head(data)
+dim(data)
+```
+Let's have a look at the data!
+```{r}
+pairs(data)
+```
+```{r}
+hist(LifeExp)
+hist(People.per.Dr)
+hist(People.per.TV)
+```
+```{r}
+# States with highest life expectancy
+data[order(LifeExp, decreasing = TRUE),]
+```
+```{r}
+# States with highest PeoplexTV
+data[order(People.per.TV, decreasing = TRUE),]
+```
+```{r}
+
+# States with highest PeoplexDr
+data[order(People.per.Dr, decreasing = TRUE),]
+```
+Now we'll get rid of the missing values by simply deleting the corresponsing entries in the dataframe. 
+```{r}
+data <- na.omit(data)
+dim(data)
+```
+Let's fit a linear model on the logged transformed variables.
+```{r}
+model <- lm(LifeExp~log(People.per.Dr)+log(People.per.TV), data=data)
+summary(model)
+```
+Beware: the coefficients refer to the log-transformed variables, hence the right interpretation , for instance of the second coefficient, would be: by increasing the number of people per Dr. by a factor of (e), while keeping the other variable fixed, the life expectancy would, on average, decrease by -2.25**.
+```{r}
+plot(model)
+```
+Can we conclude that more TVs imply a higher life expectancy? 
+No, because we're not analysing the data with a causal model. 
+However, we can use the estimated coefficient to predict the LifeExp for a new point. 
+
+Looking at the Cook distance we can clearly pinpoint at least two outliers in the dataset: 17 and 30.
+```{r}
+data[c(17,30),]
+```
+Let's remove the two outliers and refit the model.
+```{r}
+data.no.out <- data[c(-17,-30),]
+dim(data.no.out)
+```
+
+```{r}
+
+model <- lm(LifeExp~log(People.per.Dr)+log(People.per.TV), data=data.no.out)
+summary(model)
+plot(model)
+```
+Notice that the R-squared has significantly improved, while the coefficient estimates have changed markedly. 
+Now let's use the summary data to compute some confidence intervals. 
+```{r}
+new.point <- data.frame(People.per.Dr=3000,People.per.TV=50)
+#95% confidence interval for the 
+predict(model, new.point, interval = "confidence")
+predict(model, new.point, interval = "prediction")
+```
+Where did these 2 interval come out from? 
+```{r}
+n <- dim(data.no.out)[1]
+p <- dim(data.no.out)[2]
+n
+p
+```
+
+```{r}
+beta.hat <- model$coefficients
+x0 <- matrix(c(1,log(3000),log(50)))
+point.estimate <- t(x0)%*%beta.hat
+point.estimate
+X <- as.matrix(cbind(1,data.no.out[,2:3]))
+se.hat <- summary(model)$sigma
+xtx.inv <- solve(t(X)%*%X)
+confidence.average <- sqrt(t(x0)%*%xtx.inv%*%x0)*se.hat*qt(0.975, df=n-p)
+c(point.estimate-confidence.average, point.estimate+confidence.average)
+confidence.actual <- sqrt(1 + t(x0)%*%xtx.inv%*%x0)*se.hat*qt(0.975, df=n-p)
+c(point.estimate-confidence.actual, point.estimate+confidence.actual)
+```
+
+# The bias variance tradeoff
+We're going to show the bias-variance tradeoff on a made up dataset. 
+```{r}
+# Creating the dataset
+nsim <- 1000
+n <- 100
+```
+```{r}
+# A non linear function 
+f <- function(x){
+  .3* x - 0.2*x^2 + 0.1*x^3 + sin(2*x) 
+}
+```
+```{r}
+generate_dataset <- function(x, sigma, n){
+  y <- f(x) + rnorm(n, mean=0, sd = sigma)
+  return(y)
+}
+```
+Let's have a look at a generated dataset: 
+```{r}
+x <- seq(-5, 5, length = 100)
+y <- generate_dataset(x, 1,100)
+plot(x,y, type = "l", col="blue")
+
+```
+
+We're going to use local regression, and we're going to play a bit with its smoothing hyperparameter alpha to study its correlation with bias and variance.
+```{r}
+alpha.seq <- c(0.1,0.2,0.3,0.45,0.7,1) # small values -> little smoothing
+par(mfrow=c(2,3))
+for(j in 1:6){
+  span <- alpha.seq[j]
+  y <- generate_dataset(x, 1, n)
+  plot(x,y, main=paste("span ",span), col="gray")
+  fit <- loess(y~x,span=span)
+  preds <- predict(fit, x)
+  lines(x, f(x), col="blue")
+  lines(x, preds, col="red")
+}
+```
+Let's play a bit with sigma and n to get a sense of the influence of both the noise level and the dataset dimension on the fit. 
+```{r}
+ns <- c(20,100,500,1000)
+sigmas <-c(0.2,1,2)
+alpha.seq <- c(0.1,0.2,0.3,0.45,0.7,1) # small values -> little smoothing
+titles = c()
+for(n.i in ns){
+  for(sigma.i in sigmas){
+    par(mfrow=c(2,3))
+    for(j in 1:6){
+      span <- alpha.seq[j]
+      x <- seq(-5, 5, length = n.i)
+      y <- generate_dataset(x, sigma.i, n.i)
+      plot(x,y, main=paste("SIGMA ",sigma.i," N ",n.i," span ",span), col="gray")
+      fit <- loess(y~x,span=span)
+      preds <- predict(fit, x)
+      lines(x, f(x), col="blue")
+      lines(x, preds, col="red")
+}
+  }
+}
+
+```
+Notice how the high-variance curves get smoothed as the dataset size increases, while the biased curves remain biased.
+
+
+Now let's generate a lot more datasets and let's build a model for each of them to analyse its bias and variance.
+
+```{r}
+# again back to n=100
+n<- 100
+x <- seq(-5, 5, length = n)
+par(mfrow=c(2,3))
+for(j in 1:6){
+  span <- alpha.seq[j]
+  plot(x,f(x), type="l", main=paste("span ",span), col="blue")
+  for(i in 1:nsim){
+    yi <- generate_dataset(x, 1, n)
+    fit <- loess(yi~x,span=span)
+    preds <- predict(fit, x)
+    lines(x, preds, col="pink")
+  }
+}
+```
+Inspecting the above plots we get a sense of what is called the *bias-variance tradeoff*, which we're now going to illustrate by numbers using an estimate of the MSE. 
+```{r}
+new.x <- 2
+new.est <- matrix(nrow=nsim, ncol=6)
+new.y <- rep(NA, nsim)
+for(i in 1:nsim){
+  yi <- generate_dataset(x, 1, n)
+  yi.new <- generate_dataset(new.x,1,1)
+  new.y[i] <-yi.new
+  for(j in 1:6){
+    span <- alpha.seq[j]
+    fit <- loess(yi~x,span=span)
+    new.point.pred <- predict(fit, new.x)
+    new.est[i,j] <- new.point.pred
+  }
+}
+```
+
+```{r}
+par(mfrow=c(2,3))
+for(j in 1:6){
+  hist(new.est[,j], main =paste("span ",alpha.seq[j]), freq = F, xlim = c(-2,2))
+  abline(v=f(new.x), col="red")
+  lines(density(new.est[,j]), col="blue")
+}
+
+```
+Now let's look at an approximation of the MSE for the different values of alpha, also showing bias, variance and noise level. 
+```{r}
+errors <- colSums((new.y - new.est)**2)/nsim
+bias.2 <- (f(new.x) - colMeans(new.est))**2
+variance <- apply(new.est,2,var)
+noise.level <- var(new.y)
+par(mfrow=c(2,2))
+plot(alpha.seq, errors, type="l", lwd=2, col="red")
+min <- which.min(errors)
+points(alpha.seq[min], errors[min], col="blue", pch=3, lwd=2)
+plot(alpha.seq, bias.2, type="l", lwd=2, col="blue", main="bias")
+plot(alpha.seq, variance, type="l", lwd=2, col="violet", main="variance")
+
+plot(alpha.seq, bias.2, type="l", lwd=1, col="blue", main="bias+variance+noise")
+lines(alpha.seq, variance, lwd=1, col="violet")
+lines(alpha.seq, variance+bias.2+noise.level, lwd=2, col="red")
+abline(h=noise.level, col="gray")
+```
+The results above confirm our intuitions, and the bias-variance tradeoff.
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,501 @@
+---
+title: "Comp stats notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# Using simple linear regression to prove the properties of LS estimator
+
+```{r}
+## generating fake dataset 
+set.seed(21)
+x <- rnorm(n=100, mean=5, sd=4)
+# the regression lines in the following two models should 
+# be the same since the error mean is absorbed in the model intercept
+eps.1 <- rnorm(n=100, mean=0, sd=1)
+eps.2 <- rnorm(n=100, mean=2, sd=1)
+y.1 <- 2 + 3*x + 5*eps.1
+y.2 <- 3*x + 5*eps.2 
+plot(x,y.1)
+abline(a=2,b=3, col="red")
+plot(x,y.2)
+abline(a=0, b=3, col="blue")
+
+```
+Now let's build the regression model.
+
+```{r}
+reg.1 <- lm(y.1~x)
+reg.2 <- lm(y.2~x)
+```
+```{r}
+summary(reg.1)
+```
+
+
+```{r}
+summary(reg.2)
+```
+
+What if we want to compute the coefficients by hand? 
+Let's do it!
+
+```{r}
+X <- matrix(cbind(rep(1,100), x), nrow = 100, ncol = 2)
+xtx.inv <- solve(t(X)%*%X)
+# coefficients 
+print("Beta 1")
+(beta.1 <- xtx.inv %*% t(X) %*% y.1)
+print("Beta 2")
+(beta.2 <- xtx.inv %*% t(X) %*% y.2)
+# predictions 
+y.hat.1 <- X%*%beta.1
+y.hat.2 <- X%*%beta.2
+# errors 
+eps.hat.1 <- y.1 - y.hat.1
+eps.hat.2 <- y.2 - y.hat.2
+# sd estimate
+sd.hat.1 <- sum(eps.hat.1**2)/(100-2)
+sd.hat.2 <- sum(eps.hat.2**2)/(100-2)
+# se for beta 
+print("Se 1")
+(se.1 <- sqrt(xtx.inv[2,2]*sd.hat.1))
+print("Se 2")
+(se.2 <- sqrt(xtx.inv[2,2]*sd.hat.2))
+# p-values of t-test
+tv.1 <- beta.1[2]/(se.1)
+tv.2 <- beta.2[2]/(se.2)
+print("P-value 1")
+(pv.1 <- pt(tv.1, df = 100-2, lower.tail = FALSE))
+print("P-value 2")
+(pv.2 <- pt(tv.2, df = 100-2, lower.tail = FALSE))
+```
+
+Exactly what we have above! What about confidence intervals? 
+
+```{r}
+ci.1.95 <- qt(0.975, df=100-2)*se.1
+ci.2.95 <- qt(0.975, df=100-2)*se.2
+
+# doing the same procedure for the intercept
+se.i.1 <- sqrt(xtx.inv[1,1]*sd.hat.1)
+se.i.2 <- sqrt(xtx.inv[1,1]*sd.hat.2)
+ci.1.i.95 <- qt(0.975, df=100-2)*se.i.1
+ci.2.i.95 <- qt(0.975, df=100-2)*se.i.2
+
+
+
+plot(x,y.1)
+abline(a=beta.1[1],b=beta.1[2], col="red")
+abline(a=beta.1[1]+ci.1.i.95,b=beta.1[2]+ci.1.95, col="pink")
+abline(a=beta.1[1]-ci.1.i.95,b=beta.1[2]-ci.1.95, col="pink")
+plot(x,y.2)
+abline(a=beta.2[1],b=beta.2[2], col="blue")
+abline(a=beta.2[1]+ci.2.i.95,b=beta.2[2]+ci.2.95, col="lightblue")
+abline(a=beta.2[1]-ci.2.i.95,b=beta.2[2]-ci.2.95, col="lightblue")
+
+```
+Now let's quickly see how stable this prediction is with a simulation. 
+
+```{r}
+## generating fake dataset 
+set.seed(21)
+nsim <- 1000
+
+coefs <- matrix(nrow=nsim, ncol=2)
+
+for(i in 1:nsim){
+  eps <- rnorm(n=100, mean=0, sd=1)
+  y <- 2 + 3*x + 5*eps
+  reg <- lm(y~x)
+  beta <- coef(reg)
+  names(beta) <- NULL
+  coefs[i,] <- beta
+}
+
+```
+As expected, each coefficient is approximately normally distributed. 
+
+```{r}
+hist(coefs[,1], freq=FALSE)
+lines(seq(-2, 5, by = 0.01), dnorm(seq(-2, 5, by = 0.01), mean= 2, sd = 5*sqrt(xtx.inv[1,1])), col="red")
+hist(coefs[,2], freq = FALSE)
+lines(seq(2.5, 3.5, by = 0.01), dnorm(seq(2.5, 3.5, by = 0.01), mean= 3, sd = 5*sqrt(xtx.inv[2,2])),col="red")
+```
+What if X can vary as well? 
+
+```{r}
+set.seed(21)
+nsim <- 1000
+
+coefs <- matrix(nrow=nsim, ncol=2)
+
+for(i in 1:nsim){
+  x<-rnorm(n=100, mean=5, sd=4)
+  eps <- rnorm(n=100, mean=0, sd=1)
+  y <- 2 + 3*x + 5*eps
+  reg <- lm(y~x)
+  beta <- coef(reg)
+  names(beta) <- NULL
+  coefs[i,] <- beta
+}
+```
+```{r}
+hist(coefs[,1], freq=FALSE)
+lines(seq(-2, 5, by = 0.01), dnorm(seq(-2, 5, by = 0.01), mean= 2, sd = 5*sqrt(xtx.inv[1,1])), col="red")
+hist(coefs[,2], freq = FALSE)
+lines(seq(2.5, 3.5, by = 0.01), dnorm(seq(2.5, 3.5, by = 0.01), mean= 3, sd = 5*sqrt(xtx.inv[2,2])),col="red")
+```
+
+
+Let's take the last model and test the assumptions!
+```{r}
+plot(reg)
+```
+
+Now let's break some assumptions. 
+```{r}
+# non normality of the noise
+eps <- 5 * (1 - rchisq(40, df = 1)) / sqrt(2)
+y <- 2 + 3*x + 5*eps
+plot(x,y)
+abline(a=2, b=3, col="blue")
+reg <- lm(y~x)
+beta <- coef(reg)
+names(beta) <- NULL
+abline(a=beta[1], b=beta[2], col="green")
+plot(reg)
+```
+```{r}
+# heteroskedasticity
+eps <- rnorm(n=100, mean=0, sd= x**3)
+y <- 2 + 3*x + 5*eps
+plot(x,y)
+abline(a=2, b=3, col="blue")
+reg <- lm(y~x)
+beta <- coef(reg)
+names(beta) <- NULL
+abline(a=beta[1], b=beta[2], col="green")
+plot(reg)
+```
+```{r}
+# Missing squared term
+eps <- rnorm(n=100, mean=0, sd= 1)
+y <- 2 + 3*x + x**2  + 5*eps
+plot(x,y)
+abline(a=2, b=3, col="blue")
+reg <- lm(y~x)
+beta <- coef(reg)
+names(beta) <- NULL
+abline(a=beta[1], b=beta[2], col="green")
+plot(reg)
+```
+
+```{r}
+# Correlated errors
+require(MASS) 
+Sigma <- matrix(0.7,100,100) 
+diag(Sigma) <- 1 
+eps <- mvrnorm(n = 1, mu = rep(0, length(x)), Sigma = Sigma)
+y <- 2 + 3*x + 5*eps
+plot(x,y)
+abline(a=2, b=3, col="blue")
+reg <- lm(y~x)
+beta <- coef(reg)
+names(beta) <- NULL
+abline(a=beta[1], b=beta[2], col="green")
+plot(reg)
+```
+
+```{r}
+# x, epsilon dependent
+eps <- rnorm(n=100, mean=x*4+1, sd= 1)
+y <- 2 + 3*x + 5*eps
+plot(x,y)
+abline(a=2, b=3, col="blue")
+reg <- lm(y~x)
+beta <- coef(reg)
+names(beta) <- NULL
+abline(a=beta[1], b=beta[2], col="green")
+plot(reg)
+```
+
+# Linear regression testing tools : t-test and F-test 
+
+Now let's generate a fake dataset to work on p-values and perform and Anova test. 
+
+```{r}
+set.seed(0)
+n <- 100 
+# two random normal and uncorrelated variables 
+z1 <- rnorm(n)
+z2 <- rnorm(n)
+# let's combine them with a linear transformation
+TF <- matrix(c(1,1,-0.1,0.3), nrow = 2, ncol = 2)
+X <- t(TF%*%rbind(z1,z2))
+x1 <- X[,1]
+x2 <- X[,2]
+plot(z1,z2)
+plot(x1,x2)
+```
+
+```{r}
+# white noise
+eps <- rnorm(n)
+beta <- rbind(1,2,0)
+# linear relationship btw Y and X
+Y <- cbind(rep(1,n),X)%*%beta + 4*eps
+data<-data.frame(X,Y)
+pairs(Y~X1 + X2, data = data)
+```
+Note: 
+  - positive correlation btw X1 and X2
+  - positive correlation btw Y and X1
+  - weak positive correlation btw Y and X2 (side effect of the 2 above)
+  
+Let's fit a linear model and look at the output!
+```{r}
+reg <- lm(Y~X)
+summary(reg)
+```
+Now let's look at all the submodels of "reg". 
+```{r}
+reg.0 <- lm(Y~1)
+summary(reg.0)
+reg.1 <- lm(Y~x1)
+summary(reg.1)
+reg.2 <- lm(Y~x2)
+summary(reg.2)
+```
+Notice that when in the model alone x2 not only has a positive coefficient but it's also estimated to be significant in the model! 
+
+Indeed to get out the coefficient estimated in the full model fot x2 we need to perform the following: 
+```{r}
+res.y1 <- reg.1$residuals
+cor21 <- lm(x2~x1)
+res.21 <- cor21$residuals
+# what x1 cannot explain in the y vs what x1 cannot explain of x2
+reg.2.res <- lm(res.y1~res.21)
+summary(reg.2.res)
+```
+
+Now back to the full model: 
+### how do we obtain the R-squared and F-test values? 
+Let's do it by hand. 
+
+```{r}
+reg.res <- reg$residuals
+y.hat <- reg$fitted.values
+y.mean <- mean(Y)
+TSS <- sum((Y-y.mean)**2)
+RSS <- sum((reg.res)**2)
+MSS <- sum((y.hat - y.mean)**2)
+# R-squared 
+print("R squared:")
+(R2 <- 1 - (RSS/TSS))
+# or equivalently 
+(MSS/TSS)
+print("Adjusted R squared")
+(R2.adj <- 1 - ((RSS/(n-3))/(TSS/(n-1)))) #accounting for the flexibility of the models
+print("F statistic:")
+(F.stat <- (MSS/(3-1))/(RSS/(n-3)))
+print("p-value:")
+(F.pv <- pf(F.stat, df1 =2, df2=(n-1), lower.tail = FALSE))
+
+```
+
+Compare it with the values in the R output: 
+```{r}
+summary(reg)
+```
+Alternatively, we can obtain the F-statistic in the summary from the anova test comparing the full model with the empty model: 
+
+```{r}
+anova(reg.0, reg)
+```
+
+# Working with categorical variables 
+
+```{r}
+library(ISLR)
+data(Carseats)
+?Carseats
+# A factor with levels Bad, Good and Medium indicating the quality of the shelving location for the car seats at each site
+shelveloc=Carseats$ShelveLoc
+# numerical predictor 
+advertising=Carseats$Advertising
+# output variable 
+sales=Carseats$Sales
+```
+```{r}
+pairs(sales ~ advertising + shelveloc)
+boxplot(sales ~shelveloc)
+```
+Notice there's no visible correlation between shelveloc and advertising (knowing something about the value of shelveloc doesn't tell me anything about the value of advertising).
+
+Let's look at how R *lm* treats categorical variables. 
+
+```{r}
+fit <- lm(sales ~ advertising + shelveloc)
+summary(fit)
+```
+
+R encodes automatically the categorical variable in 2 dummy variables. Let's do the same by hand: 
+
+```{r}
+sl1 <- (shelveloc == "Good")*1
+sl2 <- (shelveloc == "Medium")*1
+fit.manual <- lm(sales ~ advertising + sl1 + sl2)
+summary(fit.manual)
+```
+
+As expected, we get the same estimate. 
+Now let's try encoding only bad and good. 
+
+```{r}
+sl3 <- (shelveloc == "Bad")*1
+fit.manual.2 <- lm(sales ~ advertising + sl1 + sl3)
+summary(fit.manual.2)
+```
+The estimate have changed but the t-test and F-test results remain the same. 
+Now let's try giving the model all the variables.
+```{r}
+fit.manual.3 <- lm(sales ~ -1 + advertising + sl1 + sl2 + sl3)
+summary(fit.manual.3)
+```
+
+Note that we had to remove the intercept from the model.
+Let's visualize the different models: 
+
+```{r}
+plot(advertising, sales, col=shelveloc)
+beta = fit.manual.3$coefficients
+legend(1,30,unique(shelveloc),col=1:3,pch=1)
+
+abline(a=beta[2], b=beta[1], col="red")
+abline(a=beta[3], b=beta[1], col="green")
+abline(a=beta[4], b=beta[1], col="black")
+```
+Let's now answer the following question: is distinguishing between all three categories significantly better than distinguishing only between “bad” (level bad) and “not bad” (level medium or good), when accounting for advertising as well?
+
+The answer is already right here. 
+```{r}
+# any model summary will do 
+summary(fit)
+```
+The p-value of the *shelvelocGood* or the *shelvelocMedium* variable can be interpreted as its *significance* wrt to *sales*, given that all the other variables are already in the model. If the p-value was larger than 0.05 it would mean that the distinction between Good and Medium is not significantly improving the model (if the model assumptions are met, relatively to this dataset). Having the opposite result we can answer the above question with a *yes*.
+
+WIth partial F-test we should arrive at the same conclusion.
+
+```{r}
+# only accounting for "bad" and "not bad" here:
+fit.2 <- lm(sales ~ advertising + sl3)
+anova(fit.2, fit.manual.3)
+```
+
+As expected, the partial F-test confirms out hypothesis.
+
+# Working with time data, where LR fails
+
+The dataset airline contains the monthly number of flight passengers in the USA in the years ranging from January 1949 to December 1960.
+```{r}
+airline <- scan("http://stat.ethz.ch/Teaching/Datasets/airline.dat")
+head(airline)
+length(airline)
+months <- 1:144
+plot(months, airline)
+plot(months, airline, type="l")
+```
+
+Resembles an exponential trend. Let's work with the logarithm of the output. 
+
+```{r}
+y.log <- log(airline)
+plot(months, y.log)
+plot(months, y.log, type="l")
+```
+
+Let's now define a linear model depending on time and on the particular month of the year, regressing the logarithm transformed output. 
+
+```{r}
+x1<-rep(c(1,rep(0,11)),12)
+x2<-rep(c(rep(0,1),1,rep(0,10)),12)
+x3<-rep(c(rep(0,2),1,rep(0,9)),12)
+x4<-rep(c(rep(0,3),1,rep(0,8)),12)
+x5<-rep(c(rep(0,4),1,rep(0,7)),12)
+x6<-rep(c(rep(0,5),1,rep(0,6)),12)
+x7<-rep(c(rep(0,6),1,rep(0,5)),12)
+x8<-rep(c(rep(0,7),1,rep(0,4)),12)
+x9<-rep(c(rep(0,8),1,rep(0,3)),12)
+x10<-rep(c(rep(0,9),1,rep(0,2)),12)
+x11<-rep(c(rep(0,10),1,rep(0,1)),12)
+x12<-rep(c(rep(0,11),1),12)
+t <- months
+
+# notice that we remove the intercept
+model<- lm(y.log~-1+t+x1+x2+x3+x4+x5+x6+x7+x8+x9+x10+x11+x12)
+summary(model)
+
+#let's visualize our model 
+plot(t, y.log, col=(t%%12))
+beta = model$coefficients
+for(i in 2:13){
+  abline(a=beta[i], b=beta[1], col=i-1)
+}
+```
+
+So our implicit model assumption is that the log of the output grows linearly in time from month to month, with some white noise added. Do these assumptions truly hold? 
+
+```{r}
+plot(model)
+```
+
+Checking for correlation in the residuals. 
+We take a look at artificial data generated according to the model which we want to check (i.i.d. normally distributed residuals). 
+```{r}
+residuals <- model$residuals
+plot(t,residuals, type="l")
+s <- summary(model)
+sigma <- s$sigma
+
+white.noise.residuals <- rnorm(n=144, mean=0, sd=sigma)
+plot(t,white.noise.residuals, type="l")
+
+```
+
+Since there seems to be serial correlation (violation of model
+assumptions), the standard errors and p-values are not valid.
+
+
+Let's try encoding only seasonal changes. 
+
+```{r}
+s1<-rep(c(rep(1,3),rep(0,9)),12)
+s2<-rep(c(rep(0,3),rep(1,3),rep(0,6)),12)
+s3<-rep(c(rep(0,6),rep(1,3),rep(0,3)),12)
+s4<-rep(c(rep(0,9),rep(1,3)),12)
+t <- months
+
+seasons <- rep(c(rep(1,3),rep(2,3),rep(3,3),rep(4,3)),12)
+# notice that we remove the intercept
+model.seas<- lm(y.log~-1+t+s1+s2+s3+s4)
+summary(model.seas)
+
+#let's visualize our model 
+plot(t, y.log, col=seasons)
+beta = model.seas$coefficients
+for(i in 2:5){
+  abline(a=beta[i], b=beta[1], col=i-1)
+}
+```
+
+```{r}
+plot(model.seas)
+```
+Partial F-test to check whether in one there is at least one variable significant. 
+```{r}
+anova(model.seas, model)
+```
+
+Seems like the full model is better...
