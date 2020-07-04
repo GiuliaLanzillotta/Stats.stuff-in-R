@@ -4,7 +4,6 @@ output:
   pdf_document: default
   html_notebook: default
 ---
-# Regression 
 Let's have a look at a non-parametric tool such as Knn for classification.
 ```{r}
 #Downloading the data 
