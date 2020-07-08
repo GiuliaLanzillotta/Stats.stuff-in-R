@@ -180,9 +180,106 @@ And finally, let's check with the R results:
 boot.res <- boot(data=small.sample,statistic=tm.var, R=50, sim="ordinary")
 boot.ci(boot.res, conf=0.95, type="stud", index = c(1,2))
 ```
-
+## Simulations
 Okay, as you have probably noticed, the bootstrap CI are variable. We'll now study their covarage exploiting this variability with a simulation.
 ```{r}
-nsim<-1000
+nsim<-50
+Bsim<-50
+get.coverage <- function(ci){
+  if(true.tm < ci[1]){return(c(1,0))}
+  if(true.tm > ci[2]){return(c(0,1))}
+  return(c(0,0))
+}
 ```
+```{r}
+coverages <- matrix(nrow=nsim,ncol=2*4) #each coverage has 2 columns 
+names.covrg<- names(coverages)<-c("norm.low","norm.high",
+                    "basic.low","basic.high",
+                    "percent.low","percent.high",
+                    "student.low","student.high")
+for(s in 1:nsim){
+  new.sample <- rgamma(n,shape=2,rate=1)
+  boot.res <- boot(data=new.sample,statistic=tm.var, R=Bsim, 
+                   sim="ordinary",parallel = "multicore", ncpus=20)
+  b.ci<- boot.ci(boot.res, conf=0.95, type = c("basic", "norm", "perc", "stud"),
+                 index = c(1,2))
+  coverages[s,1:2] <- get.coverage(b.ci$normal[2:3])
+  coverages[s,3:4] <- get.coverage(b.ci$basic[4:5])
+  coverages[s,5:6] <- get.coverage(b.ci$percent[4:5])
+  coverages[s,7:8] <- get.coverage(b.ci$student[4:5])
+}
+
+coverages<- data.frame(coverages)
+names(coverages) <- names.covrg
+```
+Let's look at the results of the simulation.
+```{r}
+#first: a check on the output
+head(coverages)
+```
+```{r}
+coverages.frac <- colMeans(coverages)
+coverages.frac
+```
+Let's now simulate for multiple sample sizes, with more simulations.
+```{r}
+nsim <- 200
+Bsim <- 200
+ns <- c(10,50,100,500,1000)
+coverages.ns <- matrix(nrow=length(ns),ncol=2*4) #each coverage has 2 columns 
+
+for(i in 1:length(ns)){
+  n <- ns[i]
+  coverages <- matrix(nrow=nsim,ncol=2*4) #each coverage has 2 columns 
+  for(s in 1:nsim){
+    new.sample <- rgamma(n,shape=2,rate=1)
+    boot.res <- boot(data=new.sample,statistic=tm.var, R=Bsim, 
+                     sim="ordinary",parallel = "multicore", ncpus=20)
+    b.ci<- boot.ci(boot.res, conf=0.95, type = c("basic", "norm", "perc", "stud"),
+                   index = c(1,2))
+    coverages[s,1:2] <- get.coverage(b.ci$normal[2:3])
+    coverages[s,3:4] <- get.coverage(b.ci$basic[4:5])
+    coverages[s,5:6] <- get.coverage(b.ci$percent[4:5])
+    coverages[s,7:8] <- get.coverage(b.ci$student[4:5])
+  }
+  coverages.ns[i,] <- colMeans(coverages)
+}
+
+coverages.ns<- data.frame(coverages.ns, row.names=ns)
+names(coverages.ns) <- names.covrg
+head(coverages.ns)
+```
+Let's visualize the results.
+```{r}
+plot(norm.low~ ns, data = coverages.ns, col = 1, pch = 1, ylim = c(0, 0.1), 
+     log = "x", ylab = "One-sided non-coverage", 
+     main = "Non-coverage of the lower end of the CIs.") 
+points(basic.low ~ ns, data = coverages.ns, col = 2, pch = 2, xlog = TRUE)
+points(percent.low ~ ns, data = coverages.ns, col = 3, pch = 3, xlog = TRUE)
+points(student.low ~ ns, data = coverages.ns, col = 4, pch = 4, xlog = TRUE)
+lines(norm.low ~ ns, data = coverages.ns, col = 1, lty = 1, xlog = TRUE)
+lines(basic.low ~ ns, data = coverages.ns, col = 2, lty = 2, xlog = TRUE)
+lines(percent.low ~ ns, data = coverages.ns, col = 3, lty = 3, xlog = TRUE)
+lines(student.low ~ ns, data = coverages.ns, col = 4, lty = 4, xlog = TRUE)
+abline(h = 0.025, lty = 5, col="gray")
+legend("topright", legend = c("normal","basic", "reversed", "bootstrap T"), 
+       pch = 1:4, lty = 1:4, col = 1:4)
+```
+```{r}
+plot(norm.high~ ns, data = coverages.ns, col = 1, pch = 1, ylim = c(0, 0.1), 
+     log = "x", ylab = "One-sided non-coverage", 
+     main = "Non-coverage of the hgiher end of the CIs.") 
+points(basic.high ~ ns, data = coverages.ns, col = 2, pch = 2, xlog = TRUE)
+points(percent.high ~ ns, data = coverages.ns, col = 3, pch = 3, xlog = TRUE)
+points(student.high ~ ns, data = coverages.ns, col = 4, pch = 4, xlog = TRUE)
+lines(norm.high ~ ns, data = coverages.ns, col = 1, lty = 1, xlog = TRUE)
+lines(basic.high ~ ns, data = coverages.ns, col = 2, lty = 2, xlog = TRUE)
+lines(percent.high ~ ns, data = coverages.ns, col = 3, lty = 3, xlog = TRUE)
+lines(student.high ~ ns, data = coverages.ns, col = 4, lty = 4, xlog = TRUE)
+abline(h = 0.025, lty = 5, col="gray")
+legend("topright", legend = c("normal","basic", "reversed", "bootstrap T"), 
+       pch = 1:4, lty = 1:4, col = 1:4)
+```
+Notice the difference between the two tested sides, which could be due to asymmetry of the shape of the gamma distribution.
+
 
