@@ -1,0 +1,188 @@
+---
+title: "The bootstrap"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+Here is a series of exercises on the non-parametric bootstrap. 
+We will first empirically derive the probability that a given observation is part of a bootstrap sample.
+```{r}
+# sampling with replacement
+p.not.in.sample <- function(n){
+  return((1-(1/n))**n)
+}
+```
+Example: what is the probability that a given observation is not in the sample, if it has size 100?
+```{r}
+p.not.in.sample(100)
+```
+
+```{r}
+# now let's simulate and plot
+plot(100:10000, p.not.in.sample(100:10000), main="The probability of not sampling a given observation as n grows", type="l", xlab = "n", ylab = "probability")
+```
+Looking at the above result we can answer the following question: what proportion of the original observations do you expect to be in a bootstrap sample of size n? 
+
+On average, weighting each observation as 1/n, we would have that the number of observations left out would be approximately equal to 1/3 (take the expectation of the indicator variable to see it). Hence,on average, we would expect to have 2/3 of the original dataset in a bootstrap sample. 
+
+# Empirical coverage of Bootstrap confidence intervals
+
+We want to estimate the trimmed mean of the Gamma distribution where the 10% largest and 10% smallest observations are trimmed.
+```{r}
+set.seed(0)
+# approximate true parameter value with a huge sample
+true.tm <-mean(rgamma(100000000, shape = 2, rate = 1), trim = 0.1)
+true.tm
+```
+So true.tm is our ground truth. 
+We're now going to draw a small sample from the true distribution to use it to do inference. 
+```{r}
+n<-40
+small.sample <- rgamma(n,shape=2,rate=1)
+# our sample estimate
+hat.tm <- mean(small.sample, trim = 0.1)
+hat.tm
+```
+We'll now use Bootstrap to build 95% confidence intervals around our estimate. 
+```{r}
+# First of all, we need to create B bootstrap sets. 
+B <- 50 
+boot.sets <- matrix(nrow=n,ncol=B)
+for(b in 1:B){
+  b.set <- sample(small.sample,size=n, replace = T)
+  boot.sets[,b]<- b.set
+}
+```
+Let's visualize the first five datasets
+```{r}
+par(mfrow=c(2,3))
+hist(small.sample, main="original sample")
+hist(boot.sets[,1], main="Boot sample 1")
+hist(boot.sets[,2], main="Boot sample 2")
+hist(boot.sets[,3], main="Boot sample 3")
+hist(boot.sets[,4], main="Boot sample 4")
+hist(boot.sets[,5], main="Boot sample 5")
+```
+Okay now we're ready to create the confidence intervals. We're going to create four different CIs.
+```{r}
+hat.star <- matrix(nrow = B, ncol=1)
+for(b in 1:B){
+  hat.star[b]<-mean(boot.sets[,b],trim=0.1)
+}
+hist(hat.star, probability = T, breaks=20)
+abline(v=hat.tm, col="red")
+lines(density(hat.star), col="red")
+```
+
+### The reversed quantile CI
+```{r}
+# find the empirical quantiles of the bootstrap distribution 
+p.star <- hat.star - hat.tm
+lower.q <- quantile(p.star, probs = 0.025)
+upper.q <- quantile(p.star, probs = 0.975)
+lower <- hat.tm - upper.q 
+upper <- hat.tm - lower.q
+c(lower,upper)
+hist(hat.star, xlim = c(1,3))
+abline(v=lower, col="blue")
+abline(v=upper, col="blue")
+abline(v=hat.tm, col="red")
+abline(v=true.tm, col="pink")
+```
+
+Let's check our results against R results.
+```{r}
+require("boot")
+# statistic functions
+tm.fun <- function(x, ind){return(mean(x[ind], trim=0.1))}
+tm.var <- function(x, ind){
+  tm.value <- tm.fun(x[ind])
+  # second level bootstrap to obtain variance of our estimate
+  tm.variance <- var(boot(data=x[ind],R=50,statistic=tm.fun)$t)
+  return(c(tm.value,tm.variance))
+}
+```
+```{r}
+boot.res <- boot(data=small.sample,statistic=tm.fun, R=50, sim="ordinary")
+boot.ci(boot.res, conf=0.95, type="perc")
+```
+
+### The normal approximation CI
+```{r}
+# this one is base on the assumption that the estimate distribution tends to a Gaussian as n grows 
+sd.hat.tm <- sqrt(var(hat.star))
+lower.q <- qnorm(0.025)*sd.hat.tm
+lower <- hat.tm + lower.q
+upper <- hat.tm - lower.q
+c(lower,upper)
+hist(hat.star, xlim = c(1,3))
+abline(v=lower, col="blue")
+abline(v=upper, col="blue")
+abline(v=hat.tm, col="red")
+abline(v=true.tm, col="pink")
+```
+Now let's check with the R results: 
+```{r}
+boot.ci(boot.res, conf=0.95, type="norm")
+```
+
+### The naive CI
+The naive CI directly uses the hat.star quantiles. Note: no theoretical justification unless it's distribution is symmetric.
+```{r}
+lower.q <- quantile(hat.star, probs = 0.025)
+upper.q <- quantile(hat.star, probs = 0.975)
+lower <- lower.q
+upper <- upper.q
+c(lower,upper)
+hist(hat.star, xlim = c(1,3))
+abline(v=lower, col="blue")
+abline(v=upper, col="blue")
+abline(v=hat.tm, col="red")
+abline(v=true.tm, col="pink")
+```
+Again let's check with the R results: 
+```{r}
+boot.ci(boot.res, conf=0.95, type="basic")
+```
+### The bootstrap T CI
+Now, to obtain the bootstrap T CI we need a second level bootstrap.
+```{r}
+C <- 50
+hat.star.T <- matrix(nrow=B, ncol=1)
+for(b in 1:B){
+  hat.star.b<-matrix(nrow=C,ncol=1)
+  for(c in 1:C){
+    c.set <- sample(boot.sets[,b],size=n, replace = T)
+    hat.star.b[c]<-mean(c.set,trim=0.1)
+  }
+  sd.b<-sqrt(var(hat.star.b))
+  hat.star.T[b]<-(hat.star[b]-hat.tm)/sd.b
+}
+hist(hat.star.T, probability = T, breaks=20)
+lines(density(hat.star.T), col="red")
+```
+We'll now use the empirical quantiles of this simil-T distribution to estimate the CIs.
+```{r}
+lower.q <- quantile(hat.star.T, probs = 0.025)*sd.hat.tm
+upper.q <- quantile(hat.star.T, probs = 0.975)*sd.hat.tm
+lower <- hat.tm + lower.q
+upper <- hat.tm - lower.q
+c(lower,upper)
+hist(hat.star, xlim = c(1,3))
+abline(v=lower, col="blue")
+abline(v=upper, col="blue")
+abline(v=hat.tm, col="red")
+abline(v=true.tm, col="pink")
+```
+And finally, let's check with the R results: 
+```{r}
+boot.res <- boot(data=small.sample,statistic=tm.var, R=50, sim="ordinary")
+boot.ci(boot.res, conf=0.95, type="stud", index = c(1,2))
+```
+
+Okay, as you have probably noticed, the bootstrap CI are variable. We'll now study their covarage exploiting this variability with a simulation.
+```{r}
+nsim<-1000
+```
+
