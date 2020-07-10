@@ -429,5 +429,34 @@ legend("topright", legend = c("theta","naive", "reversed", "normal"),
        lty = 1:4, col = 1:4)
 
 ```
-The confidence intervals considerably widen up in the non-parametric case. 
+The confidence intervals considerably widen up in the non-parametric case. Note that if the gamma assumption is wrong, the parametric approach is not computing the right estimates. 
+
+## Bootstrap for regression 
+
+We'll now use Bootstrap to build standard error estimates for the least squares estimator. 
+We'll work on the Boston dataset and try to estimate the variable crim from the others.
+```{r}
+require(MASS)
+head(Boston)
+```
+```{r}
+fit <- lm(crim~., data=Boston)
+summary(fit)
+```
+
+
+```{r}
+boot.fun<-function(data,index){
+  fit <- lm(crim~., data=Boston, subset = index)
+  return(coefficients(fit))
+}
+```
+
+```{r}
+B = 1000
+boot.res <- boot(Boston, boot.fun, R=B)
+boot.res
+```
+Compare the standard error calculated by bootstrap with that calculated by the lm function: if there are any differences those are probably due to the linearity and Gaussianity assumptions made by the lm model. Using non-parametric bootstrap we avoid falling in the trap of un-realistic assumptions and always get reliable (and asymptotically right) estimates for the standard deviation. Note that to get an estimate for the standard deviation of each coefficient estimate using lm we need homoskedasticity and indipendence assumptions to hold, while to estimate the coefficient itself we don't need homoskedasticity (while we still need linearity and indipendence).
+
 
