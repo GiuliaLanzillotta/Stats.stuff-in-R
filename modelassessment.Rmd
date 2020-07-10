@@ -342,3 +342,135 @@ legend("topleft",c("truth","mean of estimated error rates"),
 ```
 Now the error estimate is close to the truth.
 
+We'll now use cross-validation to assess a classification model.
+The data we'll work on is the Weekly data. Weekly percentage returns for the S&P 500 stock index between 1990 and 2010.
+```{r}
+require("ISLR")
+head(Weekly)
+```
+We'll fit a logistic regressionmodel that predicts Direction using Lag1 and Lag2.
+```{r}
+plot(Weekly$Lag1, Weekly$Lag2, col=ifelse(Weekly$Direction=="Down","orange","blue"), pch="*")
+logistic <- glm(Direction~Lag1+Lag2, family ="binomial", data =Weekly)
+summary(logistic)
+```
+Now let's fit again the logistic model using all observations but the first.
+```{r}
+logistic.1 <- glm(Direction~Lag1+Lag2, family ="binomial", data=Weekly[-1,])
+logistic.1
+```
+The coefficients are almost the same. Hence the first observation doesn't have high leverage on the dataset. 
+Let's look at our error on the first observation.
+```{r}
+# let's look at the encoding of the output in the model: 
+levels(Weekly$Direction)
+```
+```{r}
+# being Down the first level it will be encoded as 0
+# Hence the prediction "Up" corresponds to a probability higher than 0.5
+ifelse(predict(logistic.1, newdata=Weekly[1,])>0.5,"Up","Down")
+```
+The prediction is correct, and the confidence was: 
+```{r}
+1 - predict(logistic.1, newdata=Weekly[1,])
+```
+Let's repeat this process n times (one for each observation).
+```{r}
+n <- dim(Weekly)[1]
+errors <- rep(0,n)
+for(i in 1:n){
+  logistic.i <- glm(Direction~Lag1+Lag2, family ="binomial", data=Weekly[-i,])
+  prediction <- ifelse(predict(logistic.i, newdata=Weekly[i,])>0.5,"Up","Down")
+  error <- prediction!=Weekly[i,]$Direction
+  errors[i]<-error
+}
+```
+```{r}
+(mean.error.LOOCV <- mean(errors))
+(var.error.LOOCV <- var(errors))
+```
+The results are not surprising since from the data visualisation above it seemed clearly not linearly separable. 
+
+We will now perform cross-validation on a simulated data set.
+```{r}
+set.seed(1)
+x <- rnorm(100)
+y=x-2* x^2+ rnorm (100)
+plot(x,y)
+```
+```{r}
+data <- data.frame(X=x, Y=y)
+head(data)
+```
+
+We've generated data from a quadratic Gaussian model. Now forget it is quadratic and let's see if we arrive at the right conclusions using model selection tools. 
+```{r}
+set.seed(42)
+```
+We'll use LOOCV as a model selection tool for the following models:
+```{r}
+library(boot)
+model1 <- glm(Y~X,data = data)
+model2 <- glm(Y~poly(X,2), data = data)
+model3 <- glm(Y~poly(X,3), data = data)
+model4 <- glm(Y~poly(X,4), data = data)
+cv.model1 <- cv.glm(data, glmfit = model1)
+cv.model2 <- cv.glm(data, glmfit = model2)
+cv.model3 <- cv.glm(data, glmfit = model3)
+cv.model4 <- cv.glm(data, glmfit = model4)
+```
+```{r}
+cv.res <- c(cv.model1$delta[1],
+       cv.model2$delta[1],
+       cv.model3$delta[1],
+       cv.model4$delta[1])
+plot(1:4, cv.res, type="l", ylab="cv result")
+points(1:4,cv.res, pch=3, col=2, cex=2)
+which.min(cv.res)
+```
+The LOOCV confirms that the best model is the second order model. 
+Let's use another random seed to see if we get different results. 
+```{r}
+set.seed(30)
+```
+```{r}
+set.seed(30)
+model1 <- glm(Y~X,data = data)
+model2 <- glm(Y~poly(X,2), data = data)
+model3 <- glm(Y~poly(X,3), data = data)
+model4 <- glm(Y~poly(X,4), data = data)
+cv.model1 <- cv.glm(data, glmfit = model1)
+cv.model2 <- cv.glm(data, glmfit = model2)
+cv.model3 <- cv.glm(data, glmfit = model3)
+cv.model4 <- cv.glm(data, glmfit = model4)
+```
+```{r}
+cv.res <- c(cv.model1$delta[1],
+       cv.model2$delta[1],
+       cv.model3$delta[1],
+       cv.model4$delta[1])
+plot(1:4, cv.res, type="l", ylab="cv result")
+points(1:4,cv.res, pch=3, col=2, cex=2)
+which.min(cv.res)
+```
+As expected we get the same exact results:the reason for this is that the LOOCV has no variance due to splittings, hence, repeating the process on the same dataset would always yield the same results.
+
+Let's have a look at the summaries for these model to evaluate the significance of the variables and compare the results of this analysis with the LOOCV results.
+```{r}
+summary(model1)
+```
+```{r}
+summary(model2)
+```
+```{r}
+summary(model3)
+```
+
+```{r}
+summary(model4)
+```
+Now let's look at the anova: 
+```{r}
+anova(model1,model2,model3,model4)
+```
+All the tests results above seem to agree with the LOOCV: the third and fourth order terms are superflous. 
