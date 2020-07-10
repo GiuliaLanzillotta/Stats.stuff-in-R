@@ -282,4 +282,152 @@ legend("topright", legend = c("normal","basic", "reversed", "bootstrap T"),
 ```
 Notice the difference between the two tested sides, which could be due to asymmetry of the shape of the gamma distribution.
 
+## Parametric bootstrap 
+We'll now switch to parametric bootstrap techniques and analyse them in comparison with the non-parametric equivalent. 
+
+We're going to work with the Boogg data. 
+The variable boogg which measures the waiting time till the head of the Boogg explodes on Sechsel¨auten in Zurich between the year 2000 and 2018.
+```{r}
+# The values are rounded to minutes (from 2000 to 2018).
+years <- 2000:2018
+boogg <- c(17, 26, 12, 6, 12, 18, 10, 12, 26, 13, 13, 11, 12, 35, 7, 21, 44, 10, 21)
+hist(boogg, main = "Waiting time till explosion", probability = T, breaks=10)
+lines(density(boogg), col="blue")
+stem(boogg) 
+plot(years, boogg,  main = "Waiting time till explosion", lty="dashed", col="blue", type="l")
+```
+Let's assume that the data comes from a Gamma distribution, and let's use maximum likelihood to fit the parameter theta. 
+```{r}
+require(MASS)
+gamma.MLE <- fitdistr(boogg, densfun = "gamma")
+gamma.MLE
+# let's plot the gamma density on our data
+boogg.prob <- dgamma(x=seq(from=0, to = max(boogg),by = 0.4),
+                     shape=gamma.MLE$estimate["shape"], 
+                     rate=gamma.MLE$estimate["rate"])
+hist(boogg, main = "Waiting time till explosion", probability = T, breaks=10)
+lines(x=seq(from=0, to = max(boogg),by = 0.4), y=boogg.prob, col="blue")
+```
+Let's now compute the quantity of interest and use bootstrap to evaluate its variance. 
+```{r}
+theta.hat <- quantile(boogg, probs = 0.75)
+theta.hat
+```
+
+```{r}
+B <- 1000
+n <- length(boogg)
+theta.fun <- function(data){
+  # calculate the 75% quantile of the given data 
+  theta<-quantile(data, probs=0.75)
+  return(theta)
+}
+generate.data <-function(n, shape, rate){
+  data<-rgamma(n, shape, rate)
+  return(data)
+}
+# we now have everything we need for our parametric bootstrap
+boots.est <- matrix(nrow=B, ncol=1)
+for(b in 1:B){
+  data <- generate.data(n, shape=gamma.MLE$estimate["shape"],
+                        rate=gamma.MLE$estimate["rate"])
+  estimate <- theta.fun(data)
+  boots.est[b]<-estimate
+}
+```
+```{r}
+hist(boots.est, probability = T)
+abline(v=theta.hat, col="red")
+lines(density(boots.est), col="violet", lty="dashed")
+lines(x=seq(from=0, to = max(boogg),by = 0.4), y=boogg.prob, col="blue", lty="dashed")
+```
+Now let's use the result of the above bootstraping to construct confidence intervals for our estimate. 
+```{r}
+#the quantile (or naive) confidence interval 
+naive.CI <- quantile(boots.est, probs =c(0.025,0.975))
+naive.CI
+```
+```{r}
+# the reversed quantile
+lower <- theta.hat - quantile(boots.est-theta.hat, probs = 0.975)
+upper <- theta.hat - quantile(boots.est-theta.hat, probs = 0.025)
+reversed.quantile <- c(lower, upper)
+reversed.quantile
+```
+```{r}
+# the normal quantile 
+sd.theta <- sqrt(var(boots.est))
+lower <- (2*theta.hat - mean(boots.est)) - qnorm(0.975)*sd.theta
+upper <- (2*theta.hat - mean(boots.est)) + qnorm(0.975)*sd.theta
+normal.quantile <- c(lower, upper)
+normal.quantile
+```
+Let's now look at our results and check them with the output of the boot package. 
+```{r}
+plot(years,boogg, col="gray")
+abline(h=theta.hat, col=1, lty="dashed")
+abline(h=naive.CI[1], col=2, lty=2)
+abline(h=naive.CI[2], col=2, lty=2)
+abline(h=reversed.quantile[1], col=3, lty=3)
+abline(h=reversed.quantile[2], col=3, lty=3)
+abline(h=normal.quantile[1], col=4, lty=4)
+abline(h=normal.quantile[2], col=4, lty=4)
+legend("topright", legend = c("theta","naive", "reversed", "normal"), 
+       lty = 1:4, col = 1:4)
+
+```
+Note from the above plot how the naive is not equivalent to the reversed in this case, since the distribution of theta.boot - theta.hat is not symmetric around 0. 
+```{r}
+# wrapping previously used function to be compatible with boot package APIs
+statistic <- function(data, indices){
+  return(theta.fun(data[indices]))
+}
+random.generator <- function(data, parameters){
+  n <- length(data)
+  shape <- parameters[1]
+  rate <- parameters[2]
+  data<- generate.data(n, shape, rate)
+  return(data)
+}
+require("boot")
+boot.res <- boot(data=boogg,statistic=statistic, R = B, sim="parametric",ran.gen =
+                   random.generator, mle = c(gamma.MLE$estimate["shape"],
+                                             gamma.MLE$estimate["rate"]))
+boot.cis <- boot.ci(boot.res, conf=0.95, type = c("basic","perc","norm"))
+boot.cis
+```
+```{r}
+plot(years,boogg, col="gray")
+abline(h=theta.hat, col=1, lty="dashed")
+abline(h=boot.cis$percent[4], col=2, lty=2)
+abline(h=boot.cis$percent[5], col=2, lty=2)
+abline(h=boot.cis$basic[4], col=3, lty=3)
+abline(h=boot.cis$basic[5], col=3, lty=3)
+abline(h=boot.cis$normal[2], col=4, lty=4)
+abline(h=boot.cis$normal[3], col=4, lty=4)
+legend("topright", legend = c("theta","naive", "reversed", "normal"), 
+       lty = 1:4, col = 1:4)
+
+```
+The results are very similar to the ones we computed by hand. 
+What if we use a non-parametric approach? 
+```{r}
+boot.res <- boot(data=boogg,statistic=statistic, R = B)
+boot.cis <- boot.ci(boot.res, conf=0.95, type = c("basic","perc","norm"))
+boot.cis
+```
+```{r}
+plot(years,boogg, col="gray")
+abline(h=theta.hat, col=1, lty="dashed")
+abline(h=boot.cis$percent[4], col=2, lty=2)
+abline(h=boot.cis$percent[5], col=2, lty=2)
+abline(h=boot.cis$basic[4], col=3, lty=3)
+abline(h=boot.cis$basic[5], col=3, lty=3)
+abline(h=boot.cis$normal[2], col=4, lty=4)
+abline(h=boot.cis$normal[3], col=4, lty=4)
+legend("topright", legend = c("theta","naive", "reversed", "normal"), 
+       lty = 1:4, col = 1:4)
+
+```
+The confidence intervals considerably widen up in the non-parametric case. 
 
