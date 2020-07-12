@@ -1,0 +1,123 @@
+---
+title: "Model selection"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+In this notebook we're going to analyse different techniques for model selection and afterwards we're going to discuss their shortcomings. 
+
+## Selection criteria
+
+First of all, we're going to look at different criteria to compare models based on their performance and complexity.
+```{r}
+require(ISLR)
+head(Hitters)
+summary(Hitters)
+```
+```{r}
+# removing the NA 
+dim(Hitters)
+Hitters<- na.omit(Hitters)
+dim(Hitters)
+```
+We're going to use cross-validation to compare the results from different selection criteria. 
+```{r}
+nfolds <- 10 
+n <- dim(Hitters)[1]
+folds <- cut(1:n, nfolds, labels = F)
+# a bit of shuffling
+indices <- sample(1:n, size=n, replace=F)
+```
+```{r}
+library(leaps)
+
+
+
+get.bss.test.error<- function(train, test, cv.best){
+  # estimates the error on the test dataset for the best model 
+  # according to each criteria 
+  all.best<- regsubsets(x=Salary~.,data=train,nbest=1,
+                        nvmax=dim(train)[2]-1, # using all variables
+                        method="forward" )
+  s <- summary(all.best)
+  r2 <- coef(all.best, id=which.max(s$rsq))
+  adjr2 <- coef(all.best, id=which.max(s$adjr2))
+  cp <- coef(all.best, id=which.min(s$cp))
+  bic <- coef(all.best, id=which.min(s$bic))
+  cv.coefs <- coef(all.best, id=cv.best)
+  # test predictions 
+  r2.pred <- model.matrix(Salary~.,test)[,names(r2)]%*%r2
+  adjr2.pred <- model.matrix(Salary~.,test)[,names(adjr2)]%*%adjr2
+  cp.pred <- model.matrix(Salary~.,test)[,names(cp)]%*%cp
+  bic.pred <- model.matrix(Salary~.,test)[,names(bic)]%*%bic
+  cv.pred <- model.matrix(Salary~.,test)[,names(cv.coefs)]%*%cv.coefs
+  # test errors 
+  errors <- mean((r2.pred - test$Salary)**2)
+  errors <- c(errors,mean((adjr2.pred - test$Salary)**2))
+  errors <- c(errors,mean((cp.pred - test$Salary)**2))
+  errors <- c(errors,mean((bic.pred - test$Salary)**2))
+  errors <- c(errors,mean((cv.pred - test$Salary)**2))
+  return(errors)
+}
+
+
+get.cv.error <- function(ncv, nmodels, data){
+  # evaluates the mean cross-validation error of the linear model 
+  # with the selected coefficients
+  n.cv <- dim(data)[1]
+  folds.cv <- cut(1:n.cv, ncv, labels=F)
+  cv.errors <- matrix(nrow = ncv, ncol = nmodels)
+  indices.cv <- 1:n.cv
+  for(m in 1:nmodels){
+    for(j in 1:ncv){
+      test.indices.cv <- indices.cv[folds.cv==j]
+      test.cv <- data[test.indices.cv,]
+      train.cv <- data[-test.indices.cv,]
+      cv.all.best<- regsubsets(x=Salary~.,data=train.cv,
+                               nbest=1,nvmax=nmodels, # using all variables
+                               method="forward" )
+      cv.coefs <- coef(cv.all.best, id=m)
+      cv.preds <- model.matrix(Salary~.,test)[,names(cv.coefs)]%*%cv.coefs
+      # test errors 
+      cv.errors[j,m] <- mean((cv.preds - test$Salary)**2)
+    }
+  }
+  # selecting the model with the least mean error
+  # expected test MSE estimated by CV for each model
+  return(which.min(colMeans(cv.errors))) 
+}
+
+test.errors <- matrix(nrow=nfolds, ncol=5)
+
+for(i in 1:nfolds){
+  test.indices <- indices[folds==i]
+  test <- Hitters[test.indices,]
+  train <- Hitters[-test.indices,]
+  # Now we'll use BSS on the train dataset 
+  # And we'll record the error on the test set 
+  # get best cv model 
+  cv.best <- get.cv.error(ncv=5, nmodels=(dim(Hitters)[2]-1),data = train)
+  test.errors[i,] <- get.bss.test.error(train=train, test=test, cv.best=cv.best)
+  
+}
+```
+Let's look at the results.
+```{r}
+test.errors <- data.frame(test.errors)
+names(test.errors) <- c("r2","adjr2","cp","bic","cv")
+test.errors
+```
+```{r}
+plot(1:10, test.errors$r2, type="l", lty="dashed", col=2, ylab="test error", main="cv MSE estimate ", lwd=2)
+lines(1:10, test.errors$adjr2, type="l", lty="dashed", col=3, lwd=2)
+lines(1:10, test.errors$cp, type="l", lty="dashed", col=4, lwd=2)
+lines(1:10, test.errors$bic, type="l", lty="dashed", col=5, lwd=2)
+lines(1:10, test.errors$cv, type="l", lty="dashed", col=6, lwd=2)
+legend("topright", legend = c("r2", "adjr2","cp","bic","cv"), col=c(2,3,4,5,6), lty="dashed")
+```
+```{r}
+colMeans(test.errors)
+which.min(colMeans(test.errors))
+```
+So the cross validation criteria seems to be the most reliable in model selection.
