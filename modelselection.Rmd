@@ -69,18 +69,18 @@ get.cv.error <- function(ncv, nmodels, data){
   folds.cv <- cut(1:n.cv, ncv, labels=F)
   cv.errors <- matrix(nrow = ncv, ncol = nmodels)
   indices.cv <- 1:n.cv
-  for(m in 1:nmodels){
-    for(j in 1:ncv){
-      test.indices.cv <- indices.cv[folds.cv==j]
-      test.cv <- data[test.indices.cv,]
-      train.cv <- data[-test.indices.cv,]
-      cv.all.best<- regsubsets(x=Salary~.,data=train.cv,
+  for(j in 1:ncv){
+    test.indices.cv <- indices.cv[folds.cv==j]
+    test.cv <- data[test.indices.cv,]
+    train.cv <- data[-test.indices.cv,]
+    cv.all.best<- regsubsets(x=Salary~.,data=train.cv,
                                nbest=1,nvmax=nmodels, # using all variables
                                method="forward" )
-      cv.coefs <- coef(cv.all.best, id=m)
-      cv.preds <- model.matrix(Salary~.,test)[,names(cv.coefs)]%*%cv.coefs
-      # test errors 
-      cv.errors[j,m] <- mean((cv.preds - test$Salary)**2)
+     for(m in 1:nmodels){
+       cv.coefs <- coef(cv.all.best, id=m)
+       cv.preds <- model.matrix(Salary~.,test)[,names(cv.coefs)]%*%cv.coefs
+       # test errors 
+       cv.errors[j,m] <- mean((cv.preds - test$Salary)**2)
     }
   }
   # selecting the model with the least mean error
@@ -121,3 +121,158 @@ colMeans(test.errors)
 which.min(colMeans(test.errors))
 ```
 So the cross validation criteria seems to be the most reliable in model selection.
+We'll now use this criteria to select the best model fitting it on the whole data. 
+```{r}
+best.cv <- get.cv.error(ncv=10, nmodels=(dim(Hitters)[2]-1), data=Hitters)
+best.cv
+```
+Let's now look at the best model: 
+```{r}
+nmodels <- 19
+all.best <- regsubsets(x=Salary~.,data=Hitters,
+                       nbest=1,nvmax=nmodels, # using all variables
+                       method="forward")
+coef(all.best, id=9)
+```
+Let's look at some plots to see how the best model is seen according to other criteria. 
+```{r}
+par(mfrow=c(2,2))
+s <- summary(all.best)
+# rss
+plot(s$rss,xlab="Model size",ylab="RSS",type="l")
+points(9, s$rss[9], col="red",cex=2,pch=20)
+# adjr2
+plot(s$adjr2,xlab="Model size",ylab="Adjusted RSq",type="l")
+points(9, s$adjr2[9], col="red",cex=2,pch=20)
+# Cp
+plot(s$cp,xlab="Model size",ylab="Cp",type='l')
+points(9, s$cp[9], col="red", cex=2, pch=20)
+# BIC
+plot(s$bic,xlab="Model size",ylab="BIC",type='l')
+points(9, s$bic[9], col="red", cex=2, pch=20)
+```
+
+```{r}
+par(mfrow=c(1,1))
+plot(all.best, scale="r2")
+plot(all.best, scale="adjr2")
+plot(all.best, scale="Cp")
+plot(all.best, scale="bic")
+```
+## Shrinkage methods
+
+We'll now loook at a different set of selection tools: shrinkage methods like LASSO and RIDGE. We'll actually use the ElasticNet model, of which Lasso and RIdge are special cases. 
+```{r}
+require(hdi)
+data("riboflavin")
+```
+The riboflavin dataset records the riboflavin production by Bacillus subtilis together with the gene expressions. Each row refers to one gene, storing in x its expression level.
+```{r}
+require(glmnet)
+attach(riboflavin)
+lambda.grid <- grid <- 10^seq(10,-2, length = 100)
+lasso <- glmnet(x = x, y=y, alpha = 1, lambda = lambda.grid)
+ridge <- glmnet(x = x, y=y, alpha = 0, lambda = lambda.grid)
+```
+Exploration of the output: 
+```{r}
+dim(coef(lasso))
+dim(coef(ridge))
+```
+```{r}
+lasso$lambda[50]
+round(coef(lasso)[,50],2)[coef(lasso)[,50]!=0]
+ridge$lambda[50]
+round(coef(ridge)[,50],2)[round(coef(ridge)[,50],2)!=0]
+```
+The above lambda is too high to allow any value to be different from zero. Let's have a broader look at the results with a plot: 
+```{r}
+plot(lasso)
+```
+```{r}
+plot(ridge)
+```
+The above plots are a perfect synthesis of the differences between ridge and lasso: while ridge performs a "soft thresholding", slowly shrinking all variables to 0 as lambda increases, lasso performs a "hard thresholding", cutting off variables as they reach a certain threshold (determined by lambda).
+```{r}
+plot(ridge, xvar="lambda")
+```
+How to use a model for predictions? 
+```{r}
+preds <- predict(lasso, s = 0.01, newx=riboflavin$x)
+mse.train <- mean((riboflavin$y - preds)**2)
+mse.train
+
+```
+
+
+```{r}
+preds.lasso <- predict(lasso, s = grid, newx=riboflavin$x)
+plot(log(grid), colMeans((riboflavin$y - preds.lasso)**2), col="red", main="Train MSE", type="l", ylab = "", lty="dashed")
+
+preds.ridge <- predict(ridge, s = grid, newx=riboflavin$x)
+lines(log(grid), colMeans((riboflavin$y - preds.ridge)**2), col="blue", type="l", ylab = "", lty="dashed")
+
+legend("right", legend=c("lasso","ridge"), col=c("red","blue"), lty="dashed")
+
+```
+Now let's use cross validation to do both model assessment and model selection: we're going to select the best lasso and ridge models on a train dataset and evaluate them with a second cross-validation against hold-out sets. 
+```{r}
+nfolds <- 10 
+n <- dim(riboflavin)[1]
+folds <- cut(1:n, breaks = nfolds, labels = F)
+#shuffling
+indices <- sample(1:n, size=n, replace = F)
+res.cv <- matrix(nrow=10, ncol=4)
+for(i in 1:nfolds){
+  test.indices <- indices[folds==i]
+  test <- riboflavin[test.indices, ]
+  train <- riboflavin[-test.indices, ]
+  ## model selection using cv on the train dataset
+  ## LASSO
+  lasso.cv <- cv.glmnet(x=train$x, y=train$y, 
+                        alpha = 1, lambda = lambda.grid, nfolds =10)
+  lasso.lambda <- lasso.cv$lambda.min
+  res.cv[i,1] <- lasso.lambda
+  lasso.fit <- glmnet(train$x, train$y, alpha =1, lambda = lasso.lambda)
+  ## RIDGE
+  ridge.cv <- cv.glmnet(x=train$x, y=train$y, 
+                        alpha = 0, lambda = lambda.grid, nfolds = 10)
+  ridge.lambda <- ridge.cv$lambda.min
+  res.cv[i,3] <- ridge.lambda
+  ridge.fit <- glmnet(train$x, train$y, alpha =0, lambda = ridge.lambda)
+  ## model assessment on the test dataset
+  ## LASSO
+  lasso.predict <- predict(lasso.fit, newx=test$x)
+  lasso.error<- mean((test$y-lasso.predict)**2)
+  res.cv[i,2]<-lasso.error
+  ## RIDGE
+  ridge.predict <- predict(ridge.fit, newx=test$x)
+  ridge.error<- mean((test$y-ridge.predict)**2)
+  res.cv[i,4]<-ridge.error
+}
+res.cv <- data.frame(res.cv)
+names(res.cv) <- c("lambda lasso","error lasso","lambda ridge", "error ridge")
+```
+```{r}
+res.cv
+```
+```{r}
+par(mfrow=c(2,2))
+hist(res.cv$`error lasso`, main="LASSO error")
+hist(res.cv$`lambda lasso`, main="LASSO lambda")
+hist(res.cv$`error ridge`, main="RIDGE error")
+hist(res.cv$`lambda ridge`, main="RIDGE lamdba")
+```
+Not only the ridge presents a higher expected error on the test set, but it also has more variability in the lambda values. Therefore we're going to use Lasso, fitting it to the whole dataset.
+```{r}
+lasso.cv <- cv.glmnet(x=x, y=y,alpha = 1, lambda = lambda.grid, nfolds =10)
+plot(lasso.cv)
+```
+```{r}
+best.lambda <- lasso.cv$lambda.min
+lasso.fit <- glmnet(x,y, alpha=1, lambda=best.lambda, thresh=1e-12)
+sum(coef(lasso.fit)!=0)
+```
+In the final model only 41 of the initial >4000 genes are active. 
+
+
