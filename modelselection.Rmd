@@ -3,6 +3,8 @@ title: "Model selection"
 output:
   pdf_document: default
   html_notebook: default
+  html_document:
+    df_print: paged
 ---
 
 In this notebook we're going to analyse different techniques for model selection and afterwards we're going to discuss their shortcomings. 
@@ -159,6 +161,7 @@ plot(all.best, scale="adjr2")
 plot(all.best, scale="Cp")
 plot(all.best, scale="bic")
 ```
+
 ## Shrinkage methods
 
 We'll now loook at a different set of selection tools: shrinkage methods like LASSO and RIDGE. We'll actually use the ElasticNet model, of which Lasso and RIdge are special cases. 
@@ -274,5 +277,155 @@ lasso.fit <- glmnet(x,y, alpha=1, lambda=best.lambda, thresh=1e-12)
 sum(coef(lasso.fit)!=0)
 ```
 In the final model only 41 of the initial >4000 genes are active. 
+
+# Selection bias
+
+We'll now investigate the most common (and overlooked) mistake that comes with model selection.
+
+Let's start by generating some data. 
+```{r}
+n <- 200
+sigma <- 1
+intercept <- 2
+y <- intercept + rnorm(n=n, mean=0, sd=sigma)
+X <- matrix(rnorm(n*7, mean=0, sd=1), nrow=n, ncol=7)
+data <- data.frame(Y=y, X=X)
+head(data)
+pairs(data)
+```
+So, there's no relationship between Y and X, but let's suppose we don't know it and to make it more realistic let's give some fancy names to the X variables. 
+```{r}
+names(data)<-c("HealthIdx","Poverty12mo","MedianIncome","`%Obese"," InjuryRate","HeartRisk", "noConvict", "FamilyIssue")
+head(data)
+```
+And now let's use our super-powerful model selection tools to look for the best way to model this data. 
+```{r}
+library(leaps)
+p <- dim(data)[2]
+bss.res <- regsubsets(HealthIdx~., data=data, nbest = 1, nvmax =p)
+s <- summary(bss.res)
+coef(bss.res, id=which.min(s$bic))
+```
+Okay our Best subset selection is telling us noCOnvict is the best predictor for our health index. Let's look at its p-value by fitting a linear model to it.
+```{r}
+fit.bss <- lm(HealthIdx~noConvict, data=data)
+summary(fit.bss)
+```
+The p-value of no convict is not low enough, so no discovery! But will the p-value  always save us from false discoveries or was this just luck? 
+But what if we repeat this approach multiple times? 
+```{r}
+nsim <- 1000
+# we're going to record all p-values of the selected variables for each simulation
+p.values <- matrix(nrow=nsim, ncol=p)
+p.values <- data.frame(p.values)
+names(p.values)<- names(data)[-1]
+create.formula<- function(selected){
+  formula <- selected[1]
+  if(length(selected)>1){
+    for(i in 2:length(selected)){
+    formula <- paste(formula, selected[i], sep="+")
+    }
+  }
+  return(formula)
+}
+
+for(j in 1:nsim){
+  ##Let's draw again some data from the noise
+  data$HealthIdx <- intercept + rnorm(n=n, mean=0, sd=sigma)
+  ##Model selection 
+  bss.res <- regsubsets(HealthIdx~., data=data, nbest = 1, nvmax =p)
+  s <- summary(bss.res)
+  selected <- names(coef(bss.res, id=which.min(s$cp)))[-1]
+  ##Model assessment
+  fit <- lm(paste("HealthIdx~",create.formula(selected)), data=data)
+  s <- summary(fit)
+  # extracting pvalues
+  pvalues <- s$coefficients[selected,4]
+  p.values[j, selected]=pvalues
+}
+```
+```{r}
+head(p.values)
+```
+Let's have a look at our results!
+```{r}
+hist(p.values$HeartRisk, main="HeartRIsk p-values after selection", breaks=20)
+```
+Let's now look at more honest p-values: the ones we get by fitting on the whole model, with no model selection.
+```{r}
+nsim <- 1000
+# we're going to record all p-values of the selected variables for each simulation
+p.values.noselection <- matrix(nrow=nsim, ncol=p)
+p.values.noselection <- data.frame(p.values.noselection)
+names(p.values.noselection)<- names(data)[-1]
+
+for(j in 1:nsim){
+  ##Let's draw again some data from the noise
+  data$HealthIdx <- intercept + rnorm(n=n, mean=0, sd=sigma)
+  # No model selection this time
+  selected <- names(data)[-1] # all but the response
+  fit <- lm("HealthIdx~.",data=data)
+  s <- summary(fit)
+  # extracting pvalues
+  pvalues <- s$coefficients[-1,4]
+  p.values.noselection[j, selected]=pvalues
+}
+
+```
+
+```{r}
+hist(p.values.noselection$HeartRisk, main="HeartRIsk p-values with no selection", breaks=20)
+
+```
+Now this is the true distribution of the p-values under the null. Why didn't we get this same distribution above? Because we applied what is called the *selection bias* to our analysis. Any time we use the data to make a decision (e.g. pick one model
+instead of some others), we introduce a selection effect (bias). What is wrong with the naive approach we've seen first is that it's not taking into account that the test we're conducting is *conditioned on* the fact that that specific model has already been selected. 
+
+Forward stepwise, Lasso, elastic net with cross-validation, etc, all use
+the data in a way that would result in such bias.
+Significance tests, prediction error, R2, goodness of fit tests, etc, will all suffer from selection bias.
+
+So, how do we solve this?
+
+### Solutions
+
+The idea is basically to account for the conditioning, or, put in another way: if a variable “surprises” us enough to be included in the model, it must
+surprise us again in order to be declared significant.
+
+The first and easiest solution is to do what we've already done above: fit the whole model and look at those p-values. However, we should take into consideration a multiple testing issue and adjust our tests accordingly, since we're testing for the 0.5% on all the predictors. 
+
+Another solution is to simply split the data in train and test set and NEVER use the test set before we've completed all the tests, selections and fitting. 
+Let's look at the results of this approach on the above experiment: 
+```{r}
+nsim <- 1000
+# we're going to record all p-values of the selected variables for each simulation
+p.values.split <- matrix(nrow=nsim, ncol=p)
+p.values.split <- data.frame(p.values.split)
+names(p.values.split)<- names(data)[-1]
+
+#we'll remove the noise that comes from the splitting and pre-determine the splitting before the simulation
+train <- sample(c(TRUE,FALSE), size=(n*3/4), replace = T)
+test <- (!train)
+
+for(j in 1:nsim){
+  ##Let's draw again some data from the noise
+  data$HealthIdx <- intercept + rnorm(n=n, mean=0, sd=sigma)
+  ##Model selection on the training set
+  bss.res <- regsubsets(HealthIdx~., data=data[train,], nbest = 1, nvmax=p)
+  s <- summary(bss.res)
+  selected <- names(coef(bss.res, id=which.min(s$cp)))[-1]
+  ##Model assessment on the test set
+  fit <- lm(paste("HealthIdx~",create.formula(selected)), data=data[test,])
+  s <- summary(fit)
+  # extracting pvalues
+  pvalues <- s$coefficients[selected,4]
+  p.values.split[j, selected]=pvalues
+}
+```
+```{r}
+hist(p.values.split$HeartRisk, main="HeartRIsk p-values with selection and splitting", breaks=20)
+```
+Again we obtain honest p-values, which confirms the train-test splitting as a valid and selection-bias-free procedure. However, for how simple and robust (assumptions-wise) the splitting approach might be it has some drawbacks, the main one is the lack of reproducibility, due to the randomness introduced by the splitting. 
+
+Some new research is working on *selective error control*, and here are some useful slides if you want to know more about it: http://joshualoftus.com/turing/shorttalk.pdf .
 
 
