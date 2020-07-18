@@ -1,0 +1,83 @@
+---
+title: "Non parametric tests"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# Are the Panini cards packaged at random? 
+We have a suspicion that the Panini cards are not pacaged completely at random becausewe tend to get a lot of duplicates, especially of some card types. We'll now use a simulation test to test our hypothesis. 
+
+The null hypothesis is that the cards are packaged at random with replacement.
+The alternative is the following: the cards are packaged at random with replacement, but k = 100 of the card types are 5 times more common than the others.
+```{r}
+npacks <- 50
+ncards <- 682
+nsim <- 10000
+```
+```{r}
+sim.from.null <- function(npacks=50){
+  sampled <- sample(1:ncards, size=5*npacks, replace=T)
+  # count the number of duplicates 
+  dupl <- 5*npacks - length(unique(sampled))
+  return(dupl)
+}
+alt.cards <- c(101:682,rep(1:100,5))
+sim.from.alt <- function(npacks=50){
+  sampled <- sample(alt.cards, size=5*npacks, replace=T)
+  dupl <- 5*npacks - length(unique(sampled))
+  return(dupl)
+}
+```
+Let's simulate from both hypothesis and look at what we get. 
+```{r}
+null.res <- replicate(nsim, sim.from.null())
+alt.res <- replicate(nsim, sim.from.alt())
+```
+```{r}
+p1 <-hist(null.res, plot = F)
+p2 <- hist(alt.res, plot=F)
+plot(p1, col=rgb(0,0,1,1/4), xlim=c(0,max(null.res,alt.res)), main="Null and alternative", freq = F)
+plot(p2, col=rgb(1,0,0,1/4), add=T, freq=F)
+```
+As it is possible to see from the plot above the test has a high power, meaning that the distributions are easily distinguishable. But let's put some numbers into that claim. 
+```{r}
+# power of a test = probability of the rejection region of the null , given that the alternative is true
+# To get the power we need 2 things: 
+# the rejection region for the level alpha=0.05
+# the density of the alternative - which we have computed by simulation above
+
+# note that our alternative claims to have more duplicates than the null, hence the rejection region is the right tail of the null
+rej.reg <- quantile(null.res, probs = 0.95) + 1 #we subtract one because of the discretization of the density
+rej.reg
+
+# let's now count how many of the results under the alternative fall under this threshold
+power <- sum(alt.res >= rej.reg)/nsim
+power 
+```
+Our calculations confirm our intuition: the test has high power. 
+Let's try to change the number of packs opened and see how this affects the power. 
+
+```{r}
+npacks <- c(25,30,35,40)
+powers <- rep(0,4)
+par(mfrow=c(2,2))
+for(i in 1:4){
+  # simulating 
+  np <- npacks[i]
+  null.res <- replicate(nsim, sim.from.null(np))
+  alt.res <- replicate(nsim, sim.from.alt(np))
+  # power 
+  rej.reg <- quantile(null.res, probs = 0.95) + 1
+  power <- sum(alt.res >= rej.reg)/nsim
+  powers[i] <- power
+  # plotting
+  p1 <-hist(null.res, plot = F)
+  p2 <- hist(alt.res, plot=F)
+  plot(p1, col=rgb(0,0,1,1/4), xlim=c(0,max(null.res,alt.res)), main=paste("npacks=",np,". Power = ",power), freq = F)
+  plot(p2, col=rgb(1,0,0,1/4), add=T, freq = F)
+  abline(v=rej.reg, col="red")
+}
+```
+We can conclude that to obtain power >= 85% from our test we need to open at least 35 packs.
+
