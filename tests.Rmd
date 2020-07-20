@@ -81,3 +81,180 @@ for(i in 1:4){
 ```
 We can conclude that to obtain power >= 85% from our test we need to open at least 35 packs.
 
+# Permutation tests 
+
+A good example of a permutation test is the Wilcoxon signed rank test. It is an un-paired 2 sample test that checks whether the two samples come from the same distribution. 
+We'll generate some data to analyse the performance of the method on it. 
+```{r}
+#install.packages("rmutil")
+require("rmutil")
+m <- 50
+# in this case the samples come from the same population 
+X_1 <- rlaplace(n = m, m = 0, s = 1)
+Y <- rlaplace(n = m, m = 0, s = 1)
+# in this case they come from two different populations, each with a different mean 
+X_2 <- rlaplace(n=m, m=5, s=1)
+```
+```{r}
+p1 <- hist(X_1, breaks=20,plot=F)
+p2 <- hist(X_2, breaks=20, plot=F)
+p3 <- hist(Y, breaks=20, plot=F)
+plot(p1, col=rgb(0,0,1,1/4), xlim=c(min(X_1,X_2,Y),max(X_1,X_2,Y)), freq = F, main="")
+plot(p2, col=rgb(1,0,0,1/4), add=T, freq = F)
+plot(p3, col=rgb(0,1,1,1/4), add=T, freq = F)
+legend("topright", col=c(rgb(0,0,1,1/4),rgb(1,0,0,1/4),rgb(0,1,1,1/4)), legend=c("X_1","X_2","Y"), lty = 1, lwd = 2)
+```
+Okay by eye it's easy to spot the difference in the two populations. Bt let's try to use the WIlcoxon test to assess it. 
+```{r}
+#Wilcoxon statistic: the sum of the ranks 
+# The rank statistic is very robust since it does not depend on the original distribution of the data 
+get.sum.rank <- function(n1, samples){
+  # assuming the first n1 samples come from the first population 
+  ranks <- rank(samples)
+  return(sum(ranks[1:n1])-sum(ranks[(n1+1):length(samples)]))
+}
+do1perm <- function(n1, data){
+  # permute 
+  new.data <- sample(data, length(data), replace = F)
+  # compute statistic
+  rank.sum <- get.sum.rank(n1, new.data)
+  return(rank.sum)
+}
+```
+We'll first test X_1 and Y:
+```{r}
+nperm <- 100000
+data <- c(X_1,Y)
+n1 <- length(X_1)
+res <- replicate(nperm, do1perm(n1, data))
+```
+Note that distribution is approximately normal and centered around 0. Let's now compute the p-value associated to our original data. 
+```{r}
+original.stat <- get.sum.rank(n1, data)
+```
+```{r}
+hist(res, col="lightgray")
+abline(v=original.stat, col="red")
+```
+```{r}
+# Note that our original data is positive, hence our alternative hypothesis is whether the population X_1 is shifted to the right wrt to the population Y
+# Thus the test will be on the right tail of the statistic permutation distribution
+p.value <- (sum(res>=original.stat)+1)/(nperm + 1)
+p.value
+```
+We hence fail to reject the null at level 0.05. 
+Let's now repeat the same test for the two populations Y and X_2, for which the alternative is true.
+```{r}
+nperm <- 100000
+data <- c(X_2,Y)
+n1 <- length(X_2)
+res <- replicate(nperm, do1perm(n1, data))
+```
+```{r}
+original.stat <- get.sum.rank(n1, data)
+```
+```{r}
+hist(res, col="lightgray", breaks=20, xlim=c(-1500,original.stat+1000))
+abline(v=original.stat, col="red")
+```
+In this case the original statistic is clearly off the permutation distribution, meaning that it can hardly be due to chance in the null hypothesis context. 
+```{r}
+p.value <- (sum(res>=original.stat)+1)/(nperm + 1)
+p.value
+```
+In this case we reject the null at level 0.05. 
+
+Now that we have assessed the functioning of the permutation test we'll use it to work with some real-world data. 
+Specifically, we're going to use the dataset *immer*, with its two columns Y1 and Y2. They measure the yield in the year 1931 and 1932, respectively. We omit the information that each field / observation was assigned to one of the six different locations and that one of the five different varieties of barley was grown. The farmer suspects that the yield was significantly less in the second year, regardless of the location and the type of barley. Let's test it! 
+```{r}
+require("MASS")
+?immer
+head(immer)
+attach(immer)
+```
+```{r}
+plot(Y1,Y2)
+abline(a=0,b=1, col="red", lty="dashed")
+```
+Many of the points seem to be below the line, hence for the majority of the samples the yield on year Y1 appears to be higher than the yield on the year Y2. But let's put some numbers to this impression.
+```{r}
+#Note that in this case the test is a paired 2 sample test. Hence we're not permuting the values from the two populations themeselves (because this would inject inter-subject noise into the statistic).
+diff <- Y1 - Y2 
+#Null hypothesis: no difference between Y1 and Y2
+#Alternative hypothesis: Y1 is shifted to the right with respect to Y2, hence the difference vector is positive
+
+#This time we'll use the mean of the difference vector as a statistic
+do.step <- function(diff){
+  n <- length(diff)
+  signs <- sample(c(1,-1), size=n, replace=T)
+  return(mean(diff*signs))
+}
+```
+```{r}
+nperm <- 100000
+res <- replicate(nperm, do.step(diff))
+```
+
+```{r}
+original.stat <- mean(diff)
+hist(res, col="lightgray", breaks=20, main="Permutation of year Y1 - year Y2 ")
+abline(v=original.stat, col="red")
+```
+The farmer impression seems to have statistical significance, meaning that the difference in the two harvests seem to be highly unlikely. To know how much unlikely exactly, we need a p-value: 
+```{r}
+p.value <- (sum(res>=original.stat)+1)/(nperm + 1)
+p.value
+```
+We reject the null at level 0.05 with this test. 
+Let's compare this result with what we would have got with the Wilcoxon test. 
+```{r}
+wilcox.test(Y1,Y2, alternative ="greater", paired=T)
+```
+Again with the Wilcox test we reject the null hypothesis at level 0.05. 
+
+## Permutation tests for regression 
+We'll here use permutation tests in a different setting than paired tests, i.e. the regression setting. 
+By permuting the Y values we break the relationship between the labels and the predictors. Hence, looking at the permutation distribution of the statistic assessing the regression model we can evaluate the amount by which our original statistic value can be due to chance. Let's do it. 
+```{r}
+data <- read.csv("C:/Users/Giulia/Downloads/data_ex3.csv")
+head(data)
+```
+
+We believe this data comes from a degree three polynomial, so we fit a polynomial regression model to it. 
+```{r}
+poly.fit <- lm(y~I(poly(x,3)), data=data)
+summary(poly.fit)
+```
+```{r}
+plot(data$x,data$y, col="gray")
+lines(data$x, poly.fit$fitted.values, col="blue", lty=10)
+```
+
+From the t-test the first and third order terms seem to have statistical significance. Also, from the p-value of the global F-test rejects the global null at level 0.05. However, let's use a permutation test first to check for the global null. 
+```{r}
+do.1.perm.F <- function(x,y){
+  y.new <- sample(y, size=length(y),replace=F)
+  poly.fit <- lm(y.new~I(poly(x,3)))
+  s <- summary(poly.fit)
+  return(s$fstatistic["value"])
+}
+```
+```{r}
+s <- summary(poly.fit)
+original.stat <- s$fstatistic["value"]
+nperm <- 100000
+res.perm <- replicate(nperm, do.1.perm.F(data$x, data$y))
+```
+```{r}
+hist(res.perm, col="lightgray", breaks=40, main="Permutation distribution of F-statistic")
+abline(v=original.stat, col="red")
+```
+```{r}
+# Here being the distribution symmetric the 
+p.value <- (sum(res.perm>=original.stat)+sum(res.perm<=-1*original.stat)+1)/(nperm + 1)
+p.value
+```
+The permutation test result suggests to reject the null at level 0.05. 
+
+
+
