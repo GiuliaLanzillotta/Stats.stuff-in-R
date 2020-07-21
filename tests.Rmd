@@ -230,7 +230,67 @@ plot(data$x,data$y, col="gray")
 lines(data$x, poly.fit$fitted.values, col="blue", lty=10)
 ```
 
-From the t-test the first and third order terms seem to have statistical significance. Also, from the p-value of the global F-test rejects the global null at level 0.05. However, let's use a permutation test first to check for the global null. 
+From the t-test the first and third order terms seem to have statistical significance. Also, from the p-value of the global F-test rejects the global null at level 0.05. 
+But what is the type I error rate of the F-test? 
+We can answer this question by simulating the distribution of the F statistic under the global null. 
+```{r}
+nsim <- 250
+n <- 20
+x.sim <- seq(from = -25, to = 30, length.out = n)
+do.1.sim <- function(){
+  eps <- (rgamma(n, 2, 1) - 2)*15
+  # null hypothesis
+  y.sim <- eps
+  # fit to the data 
+  fit <- lm(y.sim~I(poly(x.sim,3)))
+  s <- summary(fit)
+  fstat <- s$fstatistic["value"] 
+  return(fstat)
+}
+sim.res <- replicate(nsim, do.1.sim())
+```
+```{r}
+threshold <- qf(0.05, df1=3, df2=16, lower.tail=F)
+hist(sim.res, breaks=30, main="Distribution of F-statistic under H0")
+abline(v=threshold, col="red", lwd=2)
+```
+```{r}
+type1error <- sum(sim.res >= threshold)/nsim
+type1error
+```
+
+What about the power of the F-test? Let's considere the alternative where all the variables are active. 
+```{r}
+do.1.sim.alt <- function(){
+  eps <- (rgamma(n, 2, 1) - 2)*15
+  # alternative hypothesis
+  y.sim <- eps + 0.5*x.sim - 0.003*x.sim^2 + 0.0001*x.sim^3
+  # fit to the data 
+  fit <- lm(y.sim~I(poly(x.sim,3)))
+  s <- summary(fit)
+  fstat <- s$fstatistic["value"] 
+  return(fstat)
+}
+sim.res.alt <- replicate(nsim, do.1.sim.alt())
+```
+```{r}
+hist(sim.res.alt, breaks=30, main="Distribution of F-statistic under HA")
+abline(v=threshold, col="red", lwd=2)
+```
+```{r}
+p1 <- hist(sim.res.alt, breaks=30, plot=F)
+p2 <- hist(sim.res, breaks=30, plot=F)
+plot(p1, col=rgb(1,0,1,1/4), main="")
+plot(p2, col=rgb(0,0,1,1/4), add=T)
+abline(v=threshold, col="red", lwd=2)
+
+```
+
+```{r}
+power <- sum(sim.res.alt>=threshold)/nsim
+power
+```
+Let's now use a permutation test to check for the global null. 
 ```{r}
 do.1.perm.F <- function(x,y){
   y.new <- sample(y, size=length(y),replace=F)
@@ -242,19 +302,90 @@ do.1.perm.F <- function(x,y){
 ```{r}
 s <- summary(poly.fit)
 original.stat <- s$fstatistic["value"]
-nperm <- 100000
+nperm <- 1000
 res.perm <- replicate(nperm, do.1.perm.F(data$x, data$y))
 ```
 ```{r}
-hist(res.perm, col="lightgray", breaks=40, main="Permutation distribution of F-statistic")
+hist(res.perm, col=rgb(1,0,1,1/3), breaks=40, main="Permutation distribution of F-statistic")
 abline(v=original.stat, col="red")
 ```
 ```{r}
 # Here being the distribution symmetric the 
-p.value <- (sum(res.perm>=original.stat)+sum(res.perm<=-1*original.stat)+1)/(nperm + 1)
+p.value <- (sum(res.perm>=original.stat)+1)/(nperm + 1)
 p.value
 ```
-The permutation test result suggests to reject the null at level 0.05. 
+The permutation test result suggests to reject the null at level 0.05, even though its p-value is higher that the one from the F-test. 
+
+We can now ask ourselves the same questions we asked for the F-test, namely: what is the type one error of the permutation test? What is its power? 
+Let's run some simulations to answer.
+```{r}
+# writing these variables again for clarity
+nsim <- 250
+nperm <-1000
+# one simulation step 
+# in each step we evaluate with a permutation test the p-value of our f-statistic
+do.1.sim.perm <- function(){
+  eps <- (rgamma(n, 2, 1) - 2)*15
+  # null hypothesis
+  y.sim <- eps
+  # fit to the data and take out the original statistic
+  fit <- lm(y.sim~I(poly(x.sim,3)))
+  s <- summary(fit)
+  original.stat <- s$fstatistic["value"]
+  # permute to get out the p-value of the original stat
+  res.perm <- replicate(nperm, do.1.perm.F(x.sim, y.sim))
+  p.value <- (sum(res.perm>=original.stat)+1)/(nperm + 1)
+  return(p.value)
+}
+sim.res.perm <- replicate(nsim, do.1.sim.perm())
+
+```
+```{r}
+hist(sim.res.perm, col=rgb(0,0,1,1/4), breaks=40, main="Simulation distribution of permutation test under H0")
+abline(v=0.05, col="red")
+```
+```{r}
+type1error <- sum(sim.res.perm<=0.05)/nsim
+type1error
+```
+
+And finally the power: 
+```{r}
+do.1.sim.perm.alt <- function(){
+  eps <- (rgamma(n, 2, 1) - 2)*15
+  # alternative hypothesis
+  y.sim <- eps + 0.5*x.sim - 0.003*x.sim^2 + 0.0001*x.sim^3
+  # fit to the data and take out the original statistic
+  fit <- lm(y.sim~I(poly(x.sim,3)))
+  s <- summary(fit)
+  original.stat <- s$fstatistic["value"]
+  # permute to get out the p-value of the original stat
+  res.perm <- replicate(nperm, do.1.perm.F(x.sim, y.sim))
+  p.value <- (sum(res.perm>=original.stat)+1)/(nperm + 1)
+  return(p.value)
+}
+sim.res.perm.alt <- replicate(nsim, do.1.sim.perm.alt())
+```
+```{r}
+hist(sim.res.perm.alt, col=rgb(1,0,1,1/4), main="Simulation distribution of permutation test under HA", breaks=30)
+abline(v=0.05, col="red")
+```
+
+```{r}
+power <- sum(sim.res.perm.alt<=0.05)/nsim
+power
+```
+```{r}
+p1 <- hist(sim.res.perm.alt, breaks=30, plot=F)
+p2 <- hist(sim.res.perm, breaks=30, plot=F)
+plot(p1, col=rgb(1,0,1,1/4), main="")
+plot(p2, col=rgb(0,0,1,1/4), add=T)
+abline(v=0.05, col="red", lwd=2)
+
+```
+
+# Multiple testing 
+Lastly we focus on multiple testing, i.e. adjusting the individual tests to control the for type 1 errors in case multiple tests are conducted. 
 
 
 
