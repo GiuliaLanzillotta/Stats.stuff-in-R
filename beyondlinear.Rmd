@@ -1,0 +1,95 @@
+---
+title: "Non linear modeling"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+In this notebook we'll use the Wage data from the ISLR library to explore the realm of non linear models.
+```{r}
+library (ISLR)
+attach (Wage)
+```
+```{r}
+head(Wage)
+```
+
+## Polynomial models 
+Is the wage a 4 order polynomial of the age of the person, considering Gaussian noise in it? 
+```{r}
+fit=lm(wage~poly(age ,4) ,data=Wage)
+summary(fit)
+```
+The answer to the above question seems to be partially positive, because the four order polynomial doesn't seem statistically significant to predict the response. Let's use cross-validation to evaluate the different models.
+```{r}
+ncv <- 5 
+n <- dim(Wage)[1]
+#shuffling
+indices <- sample(1:n, size = n, replace=F)
+#splitting
+folds <- cut(indices, breaks = ncv, labels = F)
+#poly order 
+od <- c(1,2,3,4,5,6)
+res <- matrix(nrow=ncv, ncol=6)
+for(order in od){
+  for(i in 1:ncv){
+    test <- indices[folds==i]
+    fit<-lm(wage~poly(age ,order) ,data=Wage, subset=-test)
+    preds<-predict(fit, newdata=Wage[test,])
+    error<-sum((preds-Wage$wage[test])**2)/length(test)
+    res[i,order]<-error
+  }
+}
+plot(res[,1], type="l", lty="dashed", col=2, ylim =c(min(res),max(res)), ylab="MSE")
+lines(res[,2], lty="dashed", col=3)
+lines(res[,3], lty="dashed", col=4)
+lines(res[,4], lty="dashed", col=5)
+lines(res[,5], lty="dashed", col=6)
+lines(res[,6], lty="dashed", col=7)
+legend("topright",legend=c("1","2","3","4","5","6"), col=c(2,3,4,5,6,7), lty="dashed")
+```
+```{r}
+colMeans(res)
+which.min(colMeans(res))
+```
+The fourth order degree seems to be the best one according to our cross validation! Let's see what the glm automatic cross validation would say. 
+```{r}
+library(boot)
+res.glm <- numeric(6)
+for(order in od){
+  fit.glm <- glm(wage~poly(age ,order) ,data=Wage)
+  res.glm[order] <- cv.glm(Wage, fit.glm, K=ncv)$delta[2]
+}
+res.glm
+which.min(res.glm)
+```
+The glm cross-validation and our cross validation seem to agree. What about the ANOVA test? 
+```{r}
+fit1 <- lm(wage~poly(age ,1) ,data=Wage)
+fit2 <- lm(wage~poly(age ,2) ,data=Wage)
+fit3 <- lm(wage~poly(age ,3) ,data=Wage)
+fit4 <- lm(wage~poly(age ,4) ,data=Wage)
+fit5 <- lm(wage~poly(age ,5) ,data=Wage)
+fit6 <- lm(wage~poly(age ,6) ,data=Wage)
+anova(fit1,fit2,fit3,fit4,fit5,fit6)
+```
+Note that the p-values obtained with the ANOVA are the same we obtain from the T-test in the biggest model.
+```{r}
+summary(fit6)
+```
+This happens because the poly function automatically builds orthogonal coordinates, hence the p-value associated with one predictor cannot be influenced by the presence/absence of other predictors. 
+The Anova hence, like the T-test, doesn't see the fourth order term as statistically significant. 
+Let's have a look at the third and fourth order fits. 
+```{r}
+plot(Wage$age,Wage$wage, col="darkgray")
+agelims <- range(Wage$age)
+age.grid <- seq(from=agelims[1],to=agelims[2])
+preds3 <- predict(fit3, newdata = data.frame(age=age.grid))
+preds4 <- predict(fit4, newdata = data.frame(age=age.grid))
+lines(age.grid, preds3, col="blue",lwd=2)
+lines(age.grid, preds4, col="red",lwd=2)
+
+```
+
+## Step functions 
+
