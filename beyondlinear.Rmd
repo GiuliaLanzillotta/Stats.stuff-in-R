@@ -92,4 +92,98 @@ lines(age.grid, preds4, col="red",lwd=2)
 ```
 
 ## Step functions 
+We now want to fit a step function to predict wage using age, and perform cross-validation to choose the optimal number of cuts. 
+```{r}
+# The number of cuts we want to experiment with
+ncuts <- c(2,3,4,5,6,7,8,9,10)
+res <- numeric(length(ncuts))
+for(j in 1:length(ncuts)){
+  nc <- ncuts[j]
+  # saving the new factor variable in the dataframe
+  Wage$age.cut <- cut(age,nc)
+  # fit step function to the train data 
+  fit.step <- glm(wage~age.cut, data=Wage)
+  # evaluate the fit on the test data
+  cv.res <- cv.glm(Wage, fit.step, K=ncv)$delta[2]
+  res[j] <- cv.res
+  
+}
+
+res
+```
+```{r}
+plot(ncuts, res, type="l", lty="dashed", col="red")
+points(ncuts[which.min((res))], min(res), cex=2)
+```
+Hence the minimum is obtained with 8 cuts. Let's have a look at the fitted function. 
+```{r}
+fit.8.steps <- glm(wage~cut(age,8), data=Wage)
+preds.steps <- predict(fit.8.steps, newdata=data.frame(age=age.grid))
+plot(age, wage, col="darkgray")
+lines(age.grid, preds.steps, lwd=2, col="darkgreen")
+```
+Let's now explore other the non-linear relationships between wage and other variables.
+```{r}
+p <- dim(Wage)[2]
+p
+head(Wage)
+```
+```{r}
+# 11 predictors 
+pairs(Wage)
+```
+We'll now build a generalized additive model to predict the Wage based on the age, the marital status and the eductation. 
+We'll first do some exploratory analysis to evaluate the relationships between wage and marital status and education. 
+```{r}
+plot(maritl,wage, xlab="maritl", ylab="wage")
+```
+Since the main difference seems to be between never married, married and the the other 3 categories together let's try models where we use this categorical variable with some of the levels. 
+```{r}
+lvl1 <- maritl == levels(as.factor(maritl))[1]
+lvl2 <- maritl == levels(as.factor(maritl))[2]
+fit1 <- lm(wage~lvl2)
+fit2 <- lm(wage~lvl2+lvl1)
+fit3 <- lm(wage~maritl)
+anova(fit1,fit2,fit3)
+```
+The anova test confirms our intuitions: there's no statistically significant difference between Widowed Divorced and Separated, however there is a difference between these three together and Married or Never Married. 
+
+Let's now look at education: 
+```{r}
+plot(education, wage)
+```
+If we do the same we've done before for marital status here to education we'll probably obtain opposite results: all the categories are statistically significantly different. But let's put it into numbers. 
+```{r}
+edu1 <- education == levels(as.factor(education))[1]
+edu3 <- education == levels(as.factor(education))[3]
+edu5 <- education == levels(as.factor(education))[5]
+fit1 <- lm(wage~edu3)
+fit2 <- lm(wage~edu3+edu1)
+fit3 <- lm(wage~edu3+edu1+edu5)
+fit4 <- lm(wage~education)
+anova(fit1,fit2,fit3,fit4)
+```
+Our intution was right. 
+Let's now turn to the variable age again, but this time let's use splines.
+```{r}
+library(gam)
+poly.fit <- glm(wage~poly(age,4), data=Wage)
+spline.fit <- glm(wage~bs(age, df = 6))
+nat.spline.fit <- glm(wage~ns(age, df = 6))
+plot(age,wage, col="darkgray")
+preds.poly <- predict(poly.fit, newdata=data.frame(age=age.grid))
+preds.spline <- predict(spline.fit, newdata=data.frame(age=age.grid))
+preds.nat.spline <- predict(nat.spline.fit, newdata=data.frame(age=age.grid))
+lines(age.grid, preds.poly, lwd=2, col="blue")
+lines(age.grid, preds.spline, lwd=2, col="red")
+lines(age.grid, preds.nat.spline, lwd=2, col="darkgreen")
+```
+Note that the natural spline and the polynomial fit are almost identical. 
+Due to its robustness at the boundary we choose the natural spline, and proceed to fit a generalized additive model. 
+```{r}
+gam.fit <- gam(wage~ns(age, df = 6)+education+lvl2+lvl1)
+summary(gam.fit)
+par(mfrow=c(2,2))
+plot.Gam(gam.fit)
+```
 
