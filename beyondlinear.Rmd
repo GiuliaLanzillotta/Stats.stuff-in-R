@@ -187,3 +187,205 @@ par(mfrow=c(2,2))
 plot.Gam(gam.fit)
 ```
 
+# The curse of dimensionality
+
+We're now going to practically face what is known as *the curse of dimensionality* in the context of three different linear models: Knn, multiple linear regression and GAMs. 
+We will consider the specific case when the underlying signal is sparse (only one predictor has an effect on the response) and the signal is non-linear.
+
+```{r}
+library(gam)
+library(FNN)
+# Generating artificial dataset
+set.seed(1)
+# Train set 
+xtrain <- matrix(rnorm(20*100),ncol=20, nrow = 100) 
+# Note: dimensionality of predictors = 20
+ytrain <- sin(2*xtrain[,1]) + 0.3*rnorm(100)
+dtrain <- data.frame(xtrain,y = ytrain)
+# Test set 
+xtest <- matrix(rnorm(20*100),ncol=20, nrow = 100)
+ytest <- sin(2*xtest[,1]) + 0.3*rnorm(100)
+dtest <- data.frame(xtest,y = ytest)
+```
+```{r}
+head(dtrain)
+```
+
+We'll now fit on the training set each of the three models (KNN, multiple linear regression and GAM with splines) with only the first predictor, and then evaluate their test mean squared error. 
+```{r}
+# KNN first 
+# 10 different number of neighbors 
+n.ns <- 1:10 
+res.knn <- numeric(length(n.ns))
+for(n.n in n.ns){
+  # Fit KNN model with n.n number of neighbors
+  fit <- knn.reg(train=as.matrix(xtrain[,1]), 
+             test=as.matrix(xtest[,1]), 
+             y=ytrain, k = n.n)
+  error <- sum((fit$pred-ytest)**2)/length(ytest)
+  res.knn[n.n] <- error
+}
+plot(n.ns, res.knn, type="l", lty="dashed", lwd=2, col="red")
+min.nn <- which.min(res.knn)
+points(min.nn, res.knn[min.nn], cex=2)
+```
+```{r}
+#saving best KNN model
+fit.knn <- knn.reg(train=as.matrix(xtrain[,1]), 
+             test=as.matrix(xtest[,1]), 
+             y=ytrain, k = 4)
+```
+
+```{r}
+# Now multiple linear regression 
+lm.fit <- lm(y~X1, data=dtrain)
+preds.lm <- predict(lm.fit, dtest)
+error <- mean((preds.lm-dtest$y)^2)
+error
+```
+
+
+```{r}
+# And finally let's use splines 
+GAM.fit <- gam(y~s(X1, df = 4), data=dtrain)
+preds.GAM <- predict(GAM.fit,dtest)
+error <- mean((preds.GAM-dtest$y)^2)
+error
+```
+```{r}
+#Plotting 
+plot(xtest[,1], ytest, col="darkgray", xlab="x",ylab="y")
+points(xtest[,1], preds.lm, col="blue")
+points(xtest[,1], preds.GAM, col="red")
+points(xtest[,1], fit.knn$pred, col="darkgreen")
+```
+As we may have expected, the two most flexible models give the best results, while linear regression struggles to fit the data. Now what happens if we increase the dimensionality? 
+```{r}
+# For each additional predictor we'll record the test MSE
+res.dim <- matrix(nrow=19, ncol=12)
+predictors <- names(dtrain)[1:19]
+for(d in 1:19){
+  # FIRST KNNs
+  for(n.n in n.ns){
+  # Fit KNN model with n.n number of neighbors
+  fit <- knn.reg(train=as.matrix(xtrain[,1:d]), 
+             test=as.matrix(xtest[,1:d]), 
+             y=ytrain, k = n.n)
+  error <- mean((fit$pred-ytest)**2)
+  res.dim[d, n.n] <- error
+  }
+  # multiple linear regression
+  lm.formula <- as.formula(paste("y~",paste(predictors[1:d],collapse="+"), sep = ""))
+  lm.fit <- lm(lm.formula, data=dtrain)
+  preds.lm <- predict(lm.fit, dtest)
+  res.dim[d,11] <- mean((preds.lm-dtest$y)^2)
+  # GAMS
+  gams.formula <- as.formula(paste("y~s(",paste(predictors[1:d],
+                                                collapse=",4)+s("),",4)",sep = ""))
+  GAM.fit <- gam(gams.formula, data=dtrain)
+  preds.GAM <- predict(GAM.fit,dtest)
+  res.dim[d,12] <- mean((preds.GAM-dtest$y)^2)
+}
+```
+
+```{r}
+res.dim <- data.frame(res.dim)
+names(res.dim)<- c("knn1","knn2","knn3","knn4","knn5","knn6","knn7","knn8","knn9","knn10","lm","GAM")
+head(res.dim)
+```
+```{r}
+plot(1:19, res.dim$lm, type="l", col="blue", lty="dashed", ylim=c(0.12,0.8), ylab="Test MSE", xlab="Dimensions in the model")
+lines(1:19, res.dim$GAM, type="l", col="red", lty="dashed")
+lines(1:19, res.dim$knn1, type="l", col=6, lty="dashed")
+lines(1:19, res.dim$knn4, type="l", col=11, lty="dashed")
+lines(1:19, res.dim$knn7, type="l", col=8, lty="dashed")
+lines(1:19, res.dim$knn10, type="l", col=9, lty="dashed")
+legend(15,0.6, legend=c("lm","GAM","knn1","knn4","knn7","knn10"), lty="dashed", col=c("blue", "red",6,11,8,9))
+```
+It is clear from the above results that the KNN approach suffers from the curse of dimensionality the most, while both multiple linear regression and GAMs models slowly increase with the dimension. 
+
+
+# The backfitting algorithm 
+We'll now focus on a topic specific to GAMs, which is that of model fitting. GAMs do not always present a closed form solution (for instance in presence of splines or loess curves). To fit these models the *backfitting algorithm* can be used. 
+We'll now implement it for a multiple regression model, which can be seen as a special cas of a GAM.
+```{r}
+set.seed(1)
+# Generating 2 artificial datasets 
+# One with completely indipendent variables 
+# One with dependent variables
+n <- 100
+x1 <- rnorm(n)
+x2 <- rnorm(n)
+x3 <- rnorm(n)
+x4 <- rnorm(n)
+y <- 0.7 + x1 + 2*x2 + 0.5*x3 -3*x4 + rnorm(n)
+# second dataset
+x1_cor <- rnorm(n)
+x2_cor <- rnorm(n)
+x3_cor <- rnorm(n)
+x4_cor <- x1_cor + 0.4*rnorm(n)
+y_cor <- x1_cor + 2*x2_cor + 0.5*x3_cor -3*x4_cor + rnorm(n)
+```
+```{r}
+niter <- 10 
+nvar <- 4 
+# one step (one variable modified)
+backfit.onestep<-function(xj, y,j, gs){
+  other.gs <- gs[,setdiff(1:dim(gs)[2],j)]
+  new.y <- y - mean(y) - rowSums(other.gs)
+  fitj <- lm(new.y~xj)
+  return(fitj)
+}
+do.backfit <- function(x,y,niter, eps){
+  # Initialization 
+  fits <- matrix(nrow=nvar, ncol=2)
+  gs <- matrix(rep(0, n*nvar), nrow=n, ncol=nvar)
+  # Iterations
+  for(i in 1:niter){
+    old.gs <- gs 
+    for(j in 1:dim(x)[2]){
+      new.fitj <- backfit.onestep(x[,j],y,j, gs)
+      fits[j,] <- new.fitj$coefficients
+      gs[,j]<-new.fitj$fitted.values
+    }
+    # check for convergence
+    conv <- all(abs(old.gs - gs) < eps)
+    if(conv){
+      break
+      }
+  }
+  if(conv){print(paste("Converged after ",paste(i,"iterations")))}
+  else{print(paste("Not converged: update = ",max(abs(old.gs - gs))))}
+  return(fits)
+}
+```
+```{r}
+x <- cbind(x1,x2,x3,x4)
+x.cor <- cbind(x1_cor, x2_cor, x3_cor, x4_cor)
+x.fits <- do.backfit(x,y,niter=10,eps=0.05)
+x.cor.fits <- do.backfit(x.cor,y_cor,niter=10,eps=0.05)
+```
+Let's give the correlation data more iterations:
+```{r}
+x.cor.fits <- do.backfit(x.cor,y_cor,niter=100,eps=0.05)
+```
+Let's now compare the estimate we get from backfitting with those from standard multiple linear regression: we expect to see no difference for the indipendent dimensions data, while we expect to see differences with the second dataset.
+```{r}
+lm.fit.x <- lm(y~x)
+lm.fit.x.cor <- lm(y_cor~x.cor)
+```
+```{r}
+beta0.x <- sum(x.fits[,1])+mean(y)
+beta0.x
+x.fits[,2]
+summary(lm.fit.x)
+```
+We were right about the indipendent dimensions dataset. What about the second one?
+```{r}
+beta0.xcor <- sum(x.cor.fits[,1])+mean(y)
+beta0.xcor
+x.cor.fits[,2]
+summary(lm.fit.x.cor)
+```
+Note how only the estimate of x1 and x4 are off: the reason for this is that x1 and x4 are correlated, while x2 and x3 are indipendend from all the others.
+
