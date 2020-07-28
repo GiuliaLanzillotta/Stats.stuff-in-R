@@ -4,6 +4,9 @@ output:
   pdf_document: default
   html_notebook: default
 ---
+```{r}
+options(warn=-1)
+```
 
 In this notebook we'll use the Wage data from the ISLR library to explore the realm of non linear models.
 ```{r}
@@ -388,4 +391,93 @@ x.cor.fits[,2]
 summary(lm.fit.x.cor)
 ```
 Note how only the estimate of x1 and x4 are off: the reason for this is that x1 and x4 are correlated, while x2 and x3 are indipendend from all the others.
+
+
+# Tree 
+Finally we'll turn to a kind of models completely different from what we've seen so far: trees. 
+We'll now apply a Tree to the Carseats dataset to predict the value of Sales given the other variables. 
+```{r}
+library(ISLR)
+attach(Carseats)
+head(Carseats)
+```
+We'll first fit a regression tree to the data, using a validation set approach to estimate its test performance. 
+```{r}
+library(tree)
+# Let's first split the data into training and test sets 
+n <- dim(Carseats)[1]
+indices <- sample(1:n, size=n, replace=F)
+test <- indices[1:n/3]
+length(test)
+```
+```{r}
+tree.full <- tree(Sales~., data=Carseats, subset=-test)
+plot(tree.full)
+text(tree.full, pretty=0)
+```
+```{r}
+summary(tree.full)
+```
+We have used only 5 of the 10 predictors available, obtaining 17 terminal nodes in total. What test MSE do we get with this fully grown tree?
+```{r}
+preds <- predict(tree.full, newdata = Carseats[test,])
+test.MSE <- mean((Carseats$Sales[test]-preds)^2)
+test.MSE
+```
+AN MSE of practically 4, which means we're on average off by 2000$ on each prediction. Let's see if we can lower this error using pruning. 
+
+To determine the optimal pruning level we use cross validation on our fully grown tree.
+```{r}
+cv.res <- cv.tree(tree.full, K = 10)
+plot(cv.res$size, cv.res$dev, main = "Cross validation error wrt model size", type="b", col="red", xlab="model size")
+```
+```{r}
+cv.res$size[which.min(cv.res$dev)]
+```
+The optimal size is 13 leaf nodes, according to the cross validation results. Let's use this pruned tree to make predictions. 
+```{r}
+tree.pruned <- prune.tree(tree.full, best = 13)
+plot(tree.pruned)
+text(tree.pruned, pretty=0)
+```
+Let's look at the Test MSE for this pruned version. 
+```{r}
+preds.pruned <- predict(tree.pruned, newdata = Carseats[test, ])
+error.pruned <- mean((Carseats$Sales[test]-preds.pruned)^2)
+error.pruned
+```
+The test MSE increased by 0.5, hence the pruning didn't seems to improve our model. 
+Let's now refer to more robust methods such as bagging and random forests to analyze this data.
+```{r}
+library(randomForest)
+tree.bagged <- randomForest(formula=Sales~., data =Carseats, mtry=10, subset = -test)
+tree.bagged
+```
+The mean of squared residuals we see in the summary is obtained by evaluating the performance on the OOB samples for each bootstrapped dataset. If the estimate is reliable the bagged version has almost halved our error. Let's look at the test MSE. 
+```{r}
+preds.bagged <- predict(tree.bagged, newdata = Carseats[test,])
+error.bagged <- mean((Carseats$Sales[test]-preds.bagged)^2)
+error.bagged
+```
+Indeed the OOB estimation of the error is in line with the test MSE: bagging has decreased the error from approximately 4 to approximately 2.3.
+One problem with bagging is that the predictors tend to be highly correlated. A simple way to solve this is to allow each split to be done on a random subset of the predictors: this is the random forest approach. 
+```{r}
+# by default mtry ) p/3 : almost 4 in our case
+tree.rf <- randomForest(formula=Sales~., data =Carseats, subset = -test)
+tree.rf
+```
+The OOB estimate seems to be increased wrt bagging. What is this telling us? As the main distinctive feature of trees is the splitting on a random subset, this could mean that the available features at each cut are not enough to lead to signigicant improvements in the model. This can happen when there's not much overlapping between the dimensions in the dataset, while only few of them are predictive. 
+In order to prove this reasoning we look at the variable importance, which is an analysis tools available in random forests. 
+```{r}
+varImpPlot(tree.rf)
+```
+The plot above seem to validate our resoning. There are only two variables that significantly determine the model performance. This leads naturally to poorer estimates when these 2 variables are not "randomly selected" for the split.
+
+Let's look at the test MSE as we've done for the previous cases to conclude our analysis. 
+```{r}
+pred.rf <- predict(tree.rf, newdata = Carseats[test,])
+error.rf <- mean((Carseats$Sales[test]-pred.rf)^2)
+error.rf
+```
+
 
