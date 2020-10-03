@@ -15,7 +15,7 @@ In the notebooks you will find code and plain english explanatory sections, but 
 
 
 ### Topics 
-In not a meaningful order: 
+In a not meaningful order: 
 1. Linear regression: [here](https://github.com/GiuliaLanzillotta/R.stuff/blob/master/notebook.pdf) and [here](https://github.com/GiuliaLanzillotta/R.stuff/blob/master/series3sol.pdf)
 2. Classification with KNN: [notebook](https://github.com/GiuliaLanzillotta/R.stuff/blob/master/knn.pdf)
 3. Non linear estimators: [notebook](https://github.com/GiuliaLanzillotta/R.stuff/blob/master/beyondlinear.pdf)
